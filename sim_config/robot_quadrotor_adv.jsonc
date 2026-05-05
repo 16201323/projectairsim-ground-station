@@ -1,0 +1,822 @@
+{
+  // 高级四旋翼无人机配置
+  // 基于官方robot_quadrotor_fastphysics_lidar.jsonc扩展
+  // 新增前视相机，调整下视相机和LiDAR参数
+  // 物理类型：fast-physics（支持API控制）
+  "physics-type": "fast-physics",
+
+  // ==================== 刚体链接定义 ====================
+  // 定义刚体结构，每个link是一个刚体
+  "links": [
+    {
+      // Frame：机身框架
+      // 核心结构，所有部件挂载在Frame上
+      "name": "Frame",
+      "inertial": {
+        // 质量：1.0kg，标准四旋翼机身质量
+        "mass": 1.0,
+        "inertia": {
+          // 惯性类型：geometry = 根据形状自动计算
+          "type": "geometry",
+          "geometry": {
+            // 用包围盒近似计算惯性
+            // 尺寸格式：长 宽 高（米），NED坐标系 X Y Z
+            "box": {
+              "size": "0.180 0.110 0.040"
+            }
+          }
+        },
+        "aerodynamics": {
+          // 阻力系数：0.325，四旋翼典型值
+          // 值越大阻力越大，最大速度越低
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            // 阻力参考几何体（与惯性包围盒相同）
+            "box": {
+              "size": "0.180 0.110 0.040"
+            }
+          }
+        }
+      },
+      "collision": {
+        // 弹性恢复系数：0.1 = 碰撞后保留10%速度
+        // 范围0~1，0=完全非弹性，1=完全弹性
+        "restitution": 0.1,
+        // 摩擦系数：0.5 = 中等
+        // 影响接触面的滑动行为
+        "friction": 0.5
+      },
+      "visual": {
+        "geometry": {
+          // 可视化类型：unreal_mesh = UE 3D模型
+          "type": "unreal_mesh",
+          // UE四旋翼模型路径
+          "name": "/Drone/Quadrotor1"
+        }
+      }
+    },
+    {
+      // Prop_FL：左前螺旋桨
+      // 命名规则：Prop_[位置] FL/FR/RL/RR
+      "name": "Prop_FL",
+      "inertial": {
+        "origin": {
+          // 螺旋桨相对机身位置（米）
+          // X=0.253(前方) Y=-0.253(左侧) Z=-0.01(略低)
+          "xyz": "0.253 -0.253 -0.01",
+          // 螺旋桨相对机身旋转（度）
+          // 全0 = 无额外旋转
+          "rpy-deg": "0 0 0"
+        },
+        // 螺旋桨质量：0.055kg
+        "mass": 0.055,
+        "inertia": {
+          // point-mass：忽略旋转惯量
+          // 小型螺旋桨的简化处理
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            // 气动参考形状：圆柱体
+            // 半径=0.1143m(螺旋桨) 长度=0.01m(厚度)
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "0.253 -0.253 -0.01",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          // 红色螺旋桨模型（前=红，后=白，用于辨别朝向）
+          "name": "/Drone/PropellerRed"
+        }
+      }
+    },
+    {
+      // Prop_FR：右前螺旋桨
+      "name": "Prop_FR",
+      "inertial": {
+        "origin": {
+          // X=0.253(前方) Y=0.253(右侧)
+          "xyz": "0.253 0.253 -0.01",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "0.253 0.253 -0.01",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/PropellerRed"
+        }
+      }
+    },
+    {
+      // Prop_RL：左后螺旋桨
+      "name": "Prop_RL",
+      "inertial": {
+        "origin": {
+          // X=-0.253(后方) Y=-0.253(左侧)
+          "xyz": "-0.253 -0.253 -0.01",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "-0.253 -0.253 -0.01",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          // 白色螺旋桨（后=白，用于辨别朝向）
+          "name": "/Drone/PropellerWhite"
+        }
+      }
+    },
+    {
+      // Prop_RR：右后螺旋桨
+      "name": "Prop_RR",
+      "inertial": {
+        "origin": {
+          // X=-0.253(后方) Y=0.253(右侧)
+          "xyz": "-0.253 0.253 -0.01",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "-0.253 0.253 -0.01",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/PropellerWhite"
+        }
+      }
+    }
+  ],
+
+  // ==================== 关节定义 ====================
+  // 定义部件之间的连接关系
+  // type: fixed = 刚性连接，无相对运动
+  // axis: 0 0 1 = 旋转轴(Z轴)，用于执行器控制
+  "joints": [
+    {
+      "id": "Frame_Prop_FL",
+      "type": "fixed",
+      "parent-link": "Frame",
+      "child-link": "Prop_FL",
+      "axis": "0 0 1"
+    },
+    {
+      "id": "Frame_Prop_FR",
+      "type": "fixed",
+      "parent-link": "Frame",
+      "child-link": "Prop_FR",
+      "axis": "0 0 1"
+    },
+    {
+      "id": "Frame_Prop_RL",
+      "type": "fixed",
+      "parent-link": "Frame",
+      "child-link": "Prop_RL",
+      "axis": "0 0 1"
+    },
+    {
+      "id": "Frame_Prop_RR",
+      "type": "fixed",
+      "parent-link": "Frame",
+      "child-link": "Prop_RR",
+      "axis": "0 0 1"
+    }
+  ],
+
+  // ==================== 控制器定义 ====================
+  "controller": {
+    // 控制器标识
+    "id": "Simple_Flight_Controller",
+    // 机型：quadrotor-x = X布局四旋翼
+    // 布局影响电机混合矩阵
+    "airframe-setup": "quadrotor-x",
+    // 控制器类型：simple-flight-api 支持高级API
+    // 包括 move_by_velocity、move_to_position、takeoff、land
+    "type": "simple-flight-api",
+    "simple-flight-api-settings": {
+      // 执行器顺序：控制信号到电机的映射
+      // 顺序：FR->RL->FL->RR，匹配simple-flight内部逻辑
+      "actuator-order": [
+        { "id": "Prop_FR_actuator" },
+        { "id": "Prop_RL_actuator" },
+        { "id": "Prop_FL_actuator" },
+        { "id": "Prop_RR_actuator" }
+      ]
+    }
+  },
+
+  // ==================== 执行器定义 ====================
+  // 每个执行器 = 电机 + 螺旋桨组合
+  "actuators": [
+    {
+      "name": "Prop_FL_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_FL",
+      "origin": {
+        "xyz": "0.253 -0.253 -0.01",
+        "rpy-deg": "0 0 0"
+      },
+      "rotor-settings": {
+        // 旋转方向：顺时针
+        // 交替旋转抵消扭矩：FL,RR=顺时针; FR,RL=逆时针
+        "turning-direction": "clock-wise",
+        // 推力方向：-Z（向上），NED坐标系Z轴向下
+        "normal-vector": "0.0 0.0 -1.0",
+        // 推力系数（每RPM）
+        "coeff-of-thrust": 0.109919,
+        // 扭矩系数（每RPM）
+        "coeff-of-torque": 0.040164,
+        // 最大转速：6396.667 RPM
+        "max-rpm": 6396.667,
+        // 螺旋桨直径：0.2286m（约9英寸）
+        "propeller-diameter": 0.2286,
+        // 平滑时间常数：0.005秒
+        // 控制指令到RPM的平滑过渡，越小响应越快
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_FR_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_FR",
+      "origin": {
+        "xyz": "0.253 0.253 -0.01",
+        "rpy-deg": "0 0 0"
+      },
+      "rotor-settings": {
+        "turning-direction": "counter-clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_RL_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_RL",
+      "origin": {
+        "xyz": "-0.253 -0.253 -0.01",
+        "rpy-deg": "0 0 0"
+      },
+      "rotor-settings": {
+        "turning-direction": "counter-clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_RR_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_RR",
+      "origin": {
+        "xyz": "-0.253 0.253 -0.01",
+        "rpy-deg": "0 0 0"
+      },
+      "rotor-settings": {
+        "turning-direction": "clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    }
+  ],
+
+  // ==================== 传感器定义 ====================
+  "sensors": [
+    {
+      // Chase：第三人称追踪相机
+      // 用于观察无人机，不用于数据采集
+      "id": "Chase",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.05秒 ≈ 20fps
+      // 从0.03(33fps)降至0.05(20fps)，减少帧处理负担
+      // 追踪相机仅用于观察，20fps足够流畅
+      "capture-interval": 0.05,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          // 分辨率：1280x720（高清）
+          // 第三人称追踪相机需要高清画面以便观察无人机细节
+          "width": 1280,
+          "height": 720,
+          // 视场角：90度
+          "fov-degrees": 90,
+          // 启用捕获
+          "capture-enabled": true,
+          // 启用流式传输：追踪相机需要实时显示
+          "streaming-enabled": true,
+          // 像素为浮点：false = uint8(0-255)
+          "pixels-as-float": false,
+          // 压缩：false = 不压缩
+          "compress": false,
+          // 目标伽马值：2.5，用于HDR色调映射
+          "target-gamma": 2.5
+        }
+      ],
+      // 云台：锁定横滚/俯仰，自由偏航
+      // 保持相机水平朝前
+      "gimbal": {
+        "lock-roll": true,
+        "lock-pitch": true,
+        "lock-yaw": false
+      },
+      "origin": {
+        // 追踪相机：后方7米，上方2米
+        "xyz": "-7.0 0.0 -2.0",
+        // 俯仰-15.95度，适配7m/2m位置
+        "rpy-deg": "0 -15.95 0"
+      }
+    },
+    {
+      // FrontCamera：前视相机（新增）
+      // 安装在机头前方，朝前拍摄
+      // 用于前方录像和手动拍照
+      "id": "FrontCamera",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.05秒 ≈ 20fps
+      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
+      "capture-interval": 0.05,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          // 分辨率：640x360（较低分辨率节省存储/带宽）
+          // 可改为1280x720获得更高质量（存储更大） 960x540
+          "width": 1280,
+          "height": 720,
+          // 视场角：90度广角
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          // 流式传输：false 节省带宽
+          // 通过订阅回调获取图像
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        // 前视相机位置：
+        // X=0.25(前方300cm) Y=0(居中) Z=-0.10(上方10cm)
+        "xyz": "0.25 0.0 -0.10",
+        // 朝向：rpy=0 = 水平朝前
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // DownCamera：下视相机
+      // 安装在机身底部，朝下拍摄
+      // 用于地面录像和手动拍照
+      "id": "DownCamera",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.05秒 ≈ 20fps
+      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
+      "capture-interval": 0.05,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          // 分辨率：与前视相机一致
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        },
+        {
+          // 图像类型：1 = 平面深度图
+          // 正交深度，像素值=到相机距离
+          "image-type": 1,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          // 默认禁用，可通过API启用
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          // 像素为浮点：true = 浮点深度值
+          // 深度范围：0~100米
+          "pixels-as-float": true,
+          "compress": false
+        },
+        {
+          // 图像类型：2 = 透视深度图
+          // 透视深度，更接近真实相机
+          "image-type": 2,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": true,
+          "compress": false
+        },
+        {
+          // 图像类型：3 = 语义分割
+          // 像素值=物体类别ID，用于语义分割
+          "image-type": 3,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false
+        }
+      ],
+      "noise-settings": [
+        {
+          // 噪声设置（默认禁用）
+          // 启用后模拟真实传感器噪声
+          "enabled": false,
+          // 噪声应用于图像类型1
+          "image-type": 1,
+          // 以下噪声参数仅在enabled=true时生效
+          // 随机噪声贡献度
+          "rand-contrib": 0.2,
+          // 噪声变化速度
+          "rand-speed": 100000.0,
+          // 噪声颗粒大小
+          "rand-size": 500.0,
+          // 噪声密度
+          "rand-density": 2,
+          // 水平条纹贡献度
+          "horz-wave-contrib": 0.03,
+          // 条纹强度
+          "horz-wave-strength": 0.08,
+          // 条纹垂直尺寸
+          "horz-wave-vert-size": 1.0,
+          // 条纹屏幕尺寸
+          "horz-wave-screen-size": 1.0,
+          // 水平噪声线贡献度
+          "horz-noise-lines-contrib": 1.0,
+          // 噪声线Y方向密度
+          "horz-noise-lines-density-y": 0.01,
+          // 噪声线XY方向密度
+          "horz-noise-lines-density-xy": 0.5,
+          // 水平畸变贡献度
+          "horz-distortion-contrib": 1.0,
+          // 畸变强度
+          "horz-distortion-strength": 0.002
+        }
+      ],
+      "origin": {
+        // 下视相机：机身底部中心
+        "xyz": "0 0.0 0.0",
+        // 朝向：俯仰-90度 = 朝下
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // IMU1：惯性测量单元
+      // 测量加速度和角速度，用于飞行控制
+      "id": "IMU1",
+      "type": "imu",
+      "enabled": true,
+      "parent-link": "Frame",
+      "accelerometer": {
+        // 速度随机游走：加速度噪声(m/s^2/sqrt(Hz))
+        // 值越小精度越高
+        "velocity-random-walk": 0.0123,
+        // 时间常数tau：偏差相关性(秒)
+        // 偏差在此时间内缓慢变化
+        "tau": 800,
+        // 偏差稳定性：长期标准差(m/s^2)
+        "bias-stability": 2e-5,
+        // 开机偏差：初始偏差(m/s^2)
+        "turn-on-bias": "0 0 0"
+      },
+      "gyroscope": {
+        // 角度随机游走：陀螺仪噪声(rad/s/sqrt(Hz))
+        "angle-random-walk": 0.0123,
+        "tau": 500,
+        // 偏差稳定性：长期标准差(rad/s)
+        "bias-stability": 1e-6,
+        "turn-on-bias": "0 0 0"
+      }
+    },
+    {
+      // lidar1：激光雷达传感器
+      // 32通道360°旋转式LiDAR，平衡性能与点云质量
+      "id": "lidar1",
+      "type": "lidar",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 通道数：16个垂直通道
+      // 从32降至16，大幅减少点云数据量，缓解渲染和传输卡顿
+      // 16通道仍可识别建筑轮廓，对地面站可视化足够
+      "number-of-channels": 16,
+      // 测量范围：200米
+      // 从300降至200，减少远距离无效点，降低数据量
+      "range": 200,
+      // 每秒点数：50000
+      // 从100000降至50000，密度=50k/10=5000点/帧
+      // 5000点/帧对3D可视化已足够，过多点数导致UI卡顿
+      "points-per-second": 50000,
+      // 水平旋转频率：10Hz
+      "horizontal-rotation-frequency": 10,
+      // 水平视场：0-360度（全向扫描）
+      // 一圈完整扫描，一帧即可看到四周所有建筑轮廓
+      "horizontal-fov-start-deg": 0.0,
+      "horizontal-fov-end-deg": 360.0,
+      // 垂直视场上限：+20度（向上看，捕捉建筑顶部）
+      "vertical-fov-upper-deg": 20.0,
+      // 垂直视场下限：-10度（略向下，覆盖建筑中下部）
+      // 30度垂直FOV聚焦前方建筑，/ 32通道 ≈ 0.94度/通道
+      "vertical-fov-lower-deg": -10.0,
+      // 禁用自身碰撞：true = 不检测自身
+      "disable-self-hits": true,
+      // 绘制调试点：false = 不显示调试点
+      "draw-debug-points": false,
+      "origin": {
+        // LiDAR位置：机身中心上方20cm
+        "xyz": "0 0 0.2",
+        "rpy-deg": "0 0 0"
+      },
+      // 报告点云数据：true = 通过订阅获取完整点云
+      "report-point-cloud": true,
+      // 报告方位角-仰角-距离：false = 不报告极坐标数据
+      "report-azimuth-elevation-range": false,
+      // 报告无回波点：false = 不报告未反射的点
+      "report-no-return-points": false
+    },
+    {
+      // GPS：全球定位系统
+      // 提供经纬度和海拔信息，用于导航定位
+      "id": "GPS",
+      "type": "gps",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // StereoLeft：双目相机左相机
+      // 与StereoRight配对组成双目视觉系统
+      // 基线距离0.12m，安装偏左6cm
+      "id": "StereoLeft",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.05秒 ≈ 20fps
+      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
+      "capture-interval": 0.05,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          "width": 640,
+          "height": 480,
+          // 视场角：90度
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        // 左相机位置：机头前方偏左6cm
+        // X=0.25(前方) Y=-0.06(左侧6cm) Z=-0.10(上方10cm)
+        "xyz": "0.25 -0.06 -0.10",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // StereoRight：双目相机右相机
+      // 与StereoLeft配对组成双目视觉系统
+      // 基线距离0.12m，安装偏右6cm
+      "id": "StereoRight",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.05秒 ≈ 20fps
+      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
+      "capture-interval": 0.05,
+      "capture-settings": [
+        {
+          "image-type": 0,
+          "width": 640,
+          "height": 480,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        // 右相机位置：机头前方偏右6cm
+        // X=0.25(前方) Y=0.06(右侧6cm) Z=-0.10(上方10cm)
+        "xyz": "0.25 0.06 -0.10",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // RadioAltimeter：无线电高度表
+      // 使用distance-sensor类型模拟，朝下安装
+      // 测量范围：0~500米，精度±0.5米
+      // 工作原理：发射无线电波，测量反射波时间差
+      "id": "RadioAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 最小测量距离：0.5米（盲区）
+      "min-distance": 0.5,
+      // 最大测量距离：500米
+      "max-distance": 500.0,
+      "origin": {
+        // 无线电高度表：机身底部中心
+        "xyz": "0 0 0.05",
+        // 朝下测量：俯仰-90度
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // LaserAltimeter：激光高度表
+      // 使用distance-sensor类型模拟，朝下安装
+      // 测量范围：0~300米，精度±0.1米
+      // 工作原理：发射激光脉冲，测量反射光时间差
+      "id": "LaserAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.2,
+      "max-distance": 300.0,
+      "origin": {
+        // 激光高度表：机身底部偏前
+        "xyz": "0.1 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // UltrasonicAltimeter：超声波高度表
+      // 使用distance-sensor类型模拟，朝下安装
+      // 测量范围：0~10米，精度±0.02米
+      // 工作原理：发射超声波，测量反射波时间差
+      // 仅在低空有效，适合起降阶段
+      "id": "UltrasonicAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.02,
+      "max-distance": 10.0,
+      "origin": {
+        // 超声波高度表：机身底部偏后
+        "xyz": "-0.1 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // Barometer：气压计（大气机组-气压部分）
+      // 测量大气压力，计算气压高度
+      // 与Airspeed组合构成完整的大气数据系统
+      "id": "Barometer",
+      "type": "barometer",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // Airspeed：空速传感器（大气机组-空速部分）
+      // 测量指示空速（通过差压计算）
+      // 与Barometer组合构成完整的大气数据系统
+      "id": "Airspeed",
+      "type": "airspeed",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // Radar1：毫米波雷达
+      // 工作频段76-81GHz，探测距离200米
+      // 用于前方障碍物检测和目标跟踪
+      "id": "Radar1",
+      "type": "radar",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 视场角：方位±60度（共120度），仰角-30~+10度（共40度）
+      "fov": {
+        // 方位角范围：左右各60度，覆盖前方120度扇区
+        "azimuth-min": -60.0,
+        "azimuth-max": 60.0,
+        // 仰角范围：下30度到上10度，覆盖40度垂直扇区
+        "elevation-min": -30.0,
+        "elevation-max": 10.0,
+        // 方位角分辨率：1.0度
+        "azimuth-resolution": 1.0,
+        // 仰角分辨率：1.0度
+        "elevation-resolution": 1.0
+      },
+      // 最大探测距离：200米
+      "range-max": 200.0,
+      // 距离分辨率：0.5米
+      "range-resolution": 0.5,
+      // 最大速度：50米/秒
+      "velocity-max": 50.0,
+      // 速度分辨率：0.1米/秒
+      "velocity-resolution": 0.1,
+      // 检测间隔：0.1秒
+      "detection-interval": 0.1,
+      // 跟踪间隔：0.1秒
+      "track-interval": 0.1,
+      // RCS调整因子：1.0（默认）
+      "rcs-adjust-factor": 1.0,
+      // 绘制调试点：false
+      "draw-debug-points": false,
+      "origin": {
+        // 毫米波雷达：机头前方
+        "xyz": "0.25 0 0.0",
+        "rpy-deg": "0 0 0"
+      },
+      // 掩码：空列表
+      "masks": []
+    }
+  ]
+}

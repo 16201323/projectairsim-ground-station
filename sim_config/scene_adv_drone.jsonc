@@ -1,0 +1,57 @@
+{
+  // 高级无人机控制场景配置
+  // 根据用户选择动态引用对应的机器人配置文件
+  // 默认为四旋翼，脚本运行时自动替换robot-config字段
+  "id": "SceneAdvDrone",
+  "actors": [
+    {
+      "type": "robot",
+      // 无人机名称，脚本中通过此名称引用
+      "name": "Drone1",
+      "origin": {
+        // 初始位置：使用geo-point地理坐标指定
+        // 中国景德镇市：纬度29.2687 经度117.1784 海拔200m（绝对海拔，含地面海拔约50m + 离地约150m）
+        // 如果geo-point不生效，control_thread.py会自动检测并执行地下救援
+        "geo-point": "29.2687 117.1784 200",
+        "rpy-deg": "0 0 0"
+      },
+      // 机器人配置文件引用
+      // 可选值：
+      //   robot_quadrotor_adv.jsonc     - 四旋翼（默认）
+      //   robot_hexarotor_adv.jsonc     - 六旋翼
+      //   robot_quadtiltrotor_adv.jsonc - 倾斜旋翼(VTOL)
+      "robot-config": "robot_quadrotor_adv.jsonc"
+    }
+  ],
+  "clock": {
+    // 时钟类型：steppable（可步进）
+    // 客户端控制仿真步进
+    "type": "steppable",
+    // 仿真步长：3,000,000纳秒 = 3毫秒
+    // 步长越短精度越高，计算量越大
+    "step-ns": 3000000,
+    // 实时更新率 = step-ns 表示1:1实时速度
+    // 设为6000000可实现2倍速
+    "real-time-update-rate": 3000000,
+    // 启动时不暂停
+    "pause-on-start": false
+  },
+  "home-geo-point": {
+    // 中国景德镇市地理坐标
+    // 用于GPS定位和地理坐标转换
+    "latitude": 29.2687,
+    "longitude": 117.1784,
+    "altitude": 50.0
+  },
+  "segmentation": {
+    // 初始化分割ID
+    "initialize-ids": true,
+    // 不忽略已有ID
+    "ignore-existing": false,
+    // 使用所有者名称作为标签
+    "use-owner-name": true
+  },
+  // 场景类型：UnrealNative（虚幻引擎原生渲染）
+  // DynamicCity-Linux使用UE原生场景
+  "scene-type": "UnrealNative"
+}

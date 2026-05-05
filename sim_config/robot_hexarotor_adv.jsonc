@@ -1,0 +1,782 @@
+{
+  // 高级六旋翼无人机配置
+  // 基于官方robot_hexarotor_fastphysics.jsonc扩展
+  // 新增前视相机和LiDAR，调整下视相机参数
+  // 六旋翼比四旋翼有更高载荷能力和冗余性
+  "physics-type": "fast-physics",
+
+  // ==================== 刚体链接定义 ====================
+  "links": [
+    {
+      // Frame：六旋翼机身
+      // 参数与四旋翼相同，但使用不同的3D模型
+      "name": "Frame",
+      "inertial": {
+        // 机身质量：1.0kg
+        "mass": 1.0,
+        "inertia": {
+          // 惯性类型：根据包围盒自动计算
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "0.180 0.110 0.040"
+            }
+          }
+        },
+        "aerodynamics": {
+          // 阻力系数：0.325
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "0.180 0.110 0.040"
+            }
+          }
+        }
+      },
+      "collision": {
+        // 弹性恢复系数：0.1
+        "restitution": 0.1,
+        // 摩擦系数：0.5
+        "friction": 0.5
+      },
+      "visual": {
+        "geometry": {
+          "type": "unreal_mesh",
+          // 六旋翼3D模型
+          "name": "/Drone/SimpleHexarotor"
+        }
+      }
+    },
+    {
+      // Prop_0：1号螺旋桨（右前）
+      // 6个螺旋桨均匀分布，编号0-5
+      "name": "Prop_0",
+      "inertial": {
+        "origin": {
+          // 位置：X=0.7(前方) Y=-0.4(右前)
+          "xyz": "0.7 -0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "0.7 -0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/Hexarotor_Prop"
+        }
+      }
+    },
+    {
+      // Prop_1：2号螺旋桨（左前）
+      "name": "Prop_1",
+      "inertial": {
+        "origin": {
+          // 位置：X=0.7(前方) Y=0.4(左前)
+          "xyz": "0.7 0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "0.7 0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/Hexarotor_Prop"
+        }
+      }
+    },
+    {
+      // Prop_2：3号螺旋桨（左侧）
+      "name": "Prop_2",
+      "inertial": {
+        "origin": {
+          // 位置：X=0(中间) Y=0.82(左侧)
+          "xyz": "0 0.82 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "0 0.82 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/Hexarotor_Prop"
+        }
+      }
+    },
+    {
+      // Prop_3：4号螺旋桨（左后）
+      "name": "Prop_3",
+      "inertial": {
+        "origin": {
+          // 位置：X=-0.7(后方) Y=0.4(左后)
+          "xyz": "-0.7 0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "-0.7 0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/Hexarotor_Prop"
+        }
+      }
+    },
+    {
+      // Prop_4：5号螺旋桨（右后）
+      "name": "Prop_4",
+      "inertial": {
+        "origin": {
+          // 位置：X=-0.7(后方) Y=-0.4(右后)
+          "xyz": "-0.7 -0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "-0.7 -0.4 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/Hexarotor_Prop"
+        }
+      }
+    },
+    {
+      // Prop_5：6号螺旋桨（右侧）
+      "name": "Prop_5",
+      "inertial": {
+        "origin": {
+          // 位置：X=0(中间) Y=-0.82(右侧)
+          "xyz": "0 -0.82 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.055,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.325,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.1143,
+              "length": 0.01
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "0 -0.82 -0.22",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/Hexarotor_Prop"
+        }
+      }
+    }
+  ],
+
+  // ==================== 关节定义 ====================
+  // 每个螺旋桨通过fixed关节连接到机身
+  // axis: 0 0 1 = 绕Z轴旋转
+  "joints": [
+    { "id": "Frame_Prop_0", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_0", "axis": "0 0 1" },
+    { "id": "Frame_Prop_1", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_1", "axis": "0 0 1" },
+    { "id": "Frame_Prop_2", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_2", "axis": "0 0 1" },
+    { "id": "Frame_Prop_3", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_3", "axis": "0 0 1" },
+    { "id": "Frame_Prop_4", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_4", "axis": "0 0 1" },
+    { "id": "Frame_Prop_5", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_5", "axis": "0 0 1" }
+  ],
+
+  // ==================== 控制器定义 ====================
+  "controller": {
+    "id": "Simple_Flight_Controller",
+    // 机型：hexarotor-x = X布局六旋翼
+    // 6电机混合矩阵与四旋翼不同
+    "airframe-setup": "hexarotor-x",
+    // 控制器类型：simple-flight-api 支持高级API
+    "type": "simple-flight-api",
+    "simple-flight-api-settings": {
+      // 执行器顺序：0-5号螺旋桨
+      "actuator-order": [
+        { "id": "Prop_0_actuator" },
+        { "id": "Prop_1_actuator" },
+        { "id": "Prop_2_actuator" },
+        { "id": "Prop_3_actuator" },
+        { "id": "Prop_4_actuator" },
+        { "id": "Prop_5_actuator" }
+      ]
+    }
+  },
+
+  // ==================== 执行器定义 ====================
+  // 6个旋翼执行器，交替顺逆时针旋转抵消扭矩
+  // 0,2,4=顺时针；1,3,5=逆时针
+  "actuators": [
+    {
+      "name": "Prop_0_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_0",
+      "origin": { "xyz": ".7 -.4 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 顺时针
+        "turning-direction": "clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_1_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_1",
+      "origin": { "xyz": ".7 .4 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 逆时针
+        "turning-direction": "counter-clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_2_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_2",
+      "origin": { "xyz": "0 .82 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 顺时针
+        "turning-direction": "clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_3_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_3",
+      "origin": { "xyz": "-.7 .4 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 逆时针
+        "turning-direction": "counter-clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_4_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_4",
+      "origin": { "xyz": "-.7 -.4 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 顺时针
+        "turning-direction": "clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      "name": "Prop_5_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_5",
+      "origin": { "xyz": "0 -.82 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 逆时针
+        "turning-direction": "counter-clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.2286,
+        "smoothing-tc": 0.005
+      }
+    }
+  ],
+
+  // ==================== 传感器定义 ====================
+  "sensors": [
+    {
+      // Chase：第三人称追踪相机
+      "id": "Chase",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.03秒 ≈ 33fps
+      "capture-interval": 0.03,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          "width": 1280,
+          "height": 720,
+          // 视场角：90度
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          // 启用流式传输：追踪相机需要实时显示
+          "streaming-enabled": true,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      // 云台：锁定横滚/俯仰，自由偏航
+      "gimbal": {
+        "lock-roll": true,
+        "lock-pitch": true,
+        "lock-yaw": false
+      },
+      "origin": {
+        // 追踪相机：后方7米，上方2米
+        "xyz": "-7.0 0.0 -2.0",
+        // 俯仰-15.95度，适配7m/2m位置
+        "rpy-deg": "0 -15.95 0"
+      }
+    },
+    {
+      // FrontCamera：前视相机（新增）
+      // 安装在机头前方，朝前拍摄
+      "id": "FrontCamera",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.033秒 ≈ 30fps
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          // 流式传输：false 节省带宽
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        // 前视相机位置：前方15cm，居中，上方5cm
+        "xyz": "0.15 0.0 -0.05",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // DownCamera：下视相机
+      // 安装在机身底部，朝下拍摄
+      "id": "DownCamera",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.033秒 ≈ 30fps
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        },
+        {
+          // 图像类型：1 = 平面深度图
+          "image-type": 1,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          // 默认禁用，可通过API启用
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": true,
+          "compress": false
+        },
+        {
+          // 图像类型：2 = 透视深度图
+          "image-type": 2,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": true,
+          "compress": false
+        },
+        {
+          // 图像类型：3 = 语义分割
+          "image-type": 3,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false
+        }
+      ],
+      "noise-settings": [
+        {
+          // 噪声设置（默认禁用）
+          "enabled": false,
+          "image-type": 1,
+          // 随机噪声贡献度
+          "rand-contrib": 0.2,
+          // 噪声变化速度
+          "rand-speed": 100000.0,
+          // 噪声颗粒大小
+          "rand-size": 500.0,
+          // 噪声密度
+          "rand-density": 2,
+          // 水平条纹贡献度
+          "horz-wave-contrib": 0.03,
+          // 条纹强度
+          "horz-wave-strength": 0.08,
+          // 条纹垂直尺寸
+          "horz-wave-vert-size": 1.0,
+          // 条纹屏幕尺寸
+          "horz-wave-screen-size": 1.0,
+          // 水平噪声线贡献度
+          "horz-noise-lines-contrib": 1.0,
+          // 噪声线Y方向密度
+          "horz-noise-lines-density-y": 0.01,
+          // 噪声线XY方向密度
+          "horz-noise-lines-density-xy": 0.5,
+          // 水平畸变贡献度
+          "horz-distortion-contrib": 1.0,
+          // 畸变强度
+          "horz-distortion-strength": 0.002
+        }
+      ],
+      "origin": {
+        // 下视相机：机身底部中心，Z=0.5(下方0.5m)
+        "xyz": "0 0.0 0.5",
+        // 俯仰-90度 = 朝下
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // IMU1：惯性测量单元
+      "id": "IMU1",
+      "type": "imu",
+      "enabled": true,
+      "parent-link": "Frame",
+      "accelerometer": {
+        // 速度随机游走：加速度噪声(m/s^2/sqrt(Hz))
+        "velocity-random-walk": 0.0123,
+        // 时间常数tau：偏差相关性(秒)
+        "tau": 800,
+        // 偏差稳定性：长期标准差(m/s^2)
+        "bias-stability": 2e-5,
+        // 开机偏差：初始偏差(m/s^2)
+        "turn-on-bias": "0 0 0"
+      },
+      "gyroscope": {
+        // 角度随机游走：陀螺仪噪声(rad/s/sqrt(Hz))
+        "angle-random-walk": 0.0123,
+        "tau": 500,
+        // 偏差稳定性：长期标准差(rad/s)
+        "bias-stability": 1e-6,
+        "turn-on-bias": "0 0 0"
+      }
+    },
+    {
+      // lidar1：激光雷达传感器
+      // 32通道360°旋转式LiDAR，平衡性能与点云质量
+      "id": "lidar1",
+      "type": "lidar",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 通道数：32个垂直通道
+      // 32通道足够建筑轮廓识别，128通道对可视化性能负担过重
+      "number-of-channels": 32,
+      // 测量范围：300米
+      "range": 300,
+      // 每秒点数：100000
+      // 密度 = 100k/10 = 10000点/帧，360°全覆盖
+      "points-per-second": 100000,
+      // 水平旋转频率：10Hz
+      "horizontal-rotation-frequency": 10,
+      // 水平视场：0-360度（全向扫描）
+      "horizontal-fov-start-deg": 0.0,
+      "horizontal-fov-end-deg": 360.0,
+      // 垂直视场：+20度到-10度
+      // 聚焦前方建筑，向上20°捕捉建筑顶部，向下10°覆盖建筑中下部
+      "vertical-fov-upper-deg": 20.0,
+      "vertical-fov-lower-deg": -10.0,
+      // 禁用自身碰撞检测
+      "disable-self-hits": true,
+      // 不绘制调试点
+      "draw-debug-points": false,
+      "origin": {
+        // LiDAR位置：机身中心上方20cm
+        "xyz": "0 0 0.2",
+        "rpy-deg": "0 0 0"
+      },
+      // 报告完整点云数据
+      "report-point-cloud": true,
+      // 不报告极坐标数据
+      "report-azimuth-elevation-range": false,
+      // 不报告无回波点
+      "report-no-return-points": false
+    },
+    {
+      // GPS：全球定位系统
+      // 提供经纬度和海拔信息，用于导航定位
+      "id": "GPS",
+      "type": "gps",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // StereoLeft：双目相机左相机
+      "id": "StereoLeft",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          "image-type": 0,
+          "width": 640,
+          "height": 480,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        "xyz": "0.25 -0.06 -0.10",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // StereoRight：双目相机右相机
+      "id": "StereoRight",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          "image-type": 0,
+          "width": 640,
+          "height": 480,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        "xyz": "0.25 0.06 -0.10",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // RadioAltimeter：无线电高度表
+      "id": "RadioAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.5,
+      "max-distance": 500.0,
+      "origin": {
+        "xyz": "0 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // LaserAltimeter：激光高度表
+      "id": "LaserAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.2,
+      "max-distance": 300.0,
+      "origin": {
+        "xyz": "0.1 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // UltrasonicAltimeter：超声波高度表
+      "id": "UltrasonicAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.02,
+      "max-distance": 10.0,
+      "origin": {
+        "xyz": "-0.1 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // Barometer：气压计
+      "id": "Barometer",
+      "type": "barometer",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // Airspeed：空速传感器
+      "id": "Airspeed",
+      "type": "airspeed",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // Radar1：毫米波雷达
+      "id": "Radar1",
+      "type": "radar",
+      "enabled": true,
+      "parent-link": "Frame",
+      "fov": {
+        "azimuth-min": -60.0,
+        "azimuth-max": 60.0,
+        "elevation-min": -30.0,
+        "elevation-max": 10.0,
+        "azimuth-resolution": 1.0,
+        "elevation-resolution": 1.0
+      },
+      "range-max": 200.0,
+      "range-resolution": 0.5,
+      "velocity-max": 50.0,
+      "velocity-resolution": 0.1,
+      "detection-interval": 0.1,
+      "track-interval": 0.1,
+      "rcs-adjust-factor": 1.0,
+      "draw-debug-points": false,
+      "origin": {
+        "xyz": "0.25 0 0.0",
+        "rpy-deg": "0 0 0"
+      },
+      "masks": []
+    }
+  ]
+}

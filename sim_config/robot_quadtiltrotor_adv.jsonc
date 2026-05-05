@@ -1,0 +1,1143 @@
+{
+  // 高级四倾斜旋翼(VTOL)无人机配置
+  // 基于官方robot_quadtiltrotor_fastphysics.jsonc扩展
+  // 新增前视相机和LiDAR，调整下视相机参数
+  // 支持多旋翼/固定翼模式切换(VTOL)
+  // 机型：AirTaxi，质量10kg，翼展6.4m
+  "physics-type": "fast-physics",
+
+  // ==================== 刚体链接定义 ====================
+  "links": [
+    {
+      // Frame：倾斜旋翼机身
+      // 比四旋翼重得多(10kg vs 1kg)，载客飞行器
+      "name": "Frame",
+      "inertial": {
+        // 机身质量：10kg
+        "mass": 10.0,
+        "inertia": {
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "3.2 3.2 2.68"
+            }
+          }
+        },
+        "aerodynamics": {
+          // 低阻力系数(0.04)，流线型机身
+          "drag-coefficient": 0.04,
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "3.2 3.2 2.68"
+            }
+          }
+        }
+      },
+      "collision": {
+        "restitution": 0.1,
+        "friction": 0.5
+      },
+      "visual": {
+        "geometry": {
+          "type": "unreal_mesh",
+          // AirTaxi机身3D模型
+          "name": "/Drone/AirTaxi/AirTaxi_Fuselage"
+        }
+      }
+    },
+    {
+      // Shroud_FL：左前涵道风扇罩
+      // 涵道包裹螺旋桨，提高安全性和效率
+      "name": "Shroud_FL",
+      "inertial": {
+        "mass": 0.0,
+        "inertia": {
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        }
+      },
+      "collision": {
+        "restitution": 0.1,
+        "friction": 0.5
+      },
+      "visual": {
+        "origin": {
+          // 左前涵道位置：X=2.0(前) Y=-2.59(左) Z=-0.6543(下)
+          // 偏航-30度（与机臂对齐）
+          "xyz": "2.00 -2.59 -0.6543",
+          "rpy-deg": "0 0 -30"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Shroud"
+        }
+      }
+    },
+    {
+      // Prop_FL：左前螺旋桨
+      "name": "Prop_FL",
+      "inertial": {
+        "origin": {
+          "xyz": "2.00 -2.59 -0.6543",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.79,
+              "length": 0.29
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "2.00 -2.59 -0.6543",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Rotor"
+        }
+      }
+    },
+    {
+      // Shroud_FR：右前涵道风扇罩
+      "name": "Shroud_FR",
+      "inertial": {
+        "mass": 1.0,
+        "inertia": {
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        }
+      },
+      "collision": {
+        "restitution": 0.1,
+        "friction": 0.5
+      },
+      "visual": {
+        "origin": {
+          // 右前涵道位置：X=2.0(前) Y=2.59(右) Z=-0.6543(下)
+          // 偏航30度（与机臂对齐）
+          "xyz": "2.00 2.59 -0.6543",
+          "rpy-deg": "0 0 30"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Shroud"
+        }
+      }
+    },
+    {
+      // Prop_FR：右前螺旋桨
+      "name": "Prop_FR",
+      "inertial": {
+        "origin": {
+          "xyz": "2.00 2.59 -0.6543",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.79,
+              "length": 0.29
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "2.00 2.59 -0.6543",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Rotor"
+        }
+      }
+    },
+    {
+      // Shroud_RL：左后涵道风扇罩
+      "name": "Shroud_RL",
+      "inertial": {
+        "mass": 0.0,
+        "inertia": {
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        }
+      },
+      "collision": {
+        "restitution": 0.1,
+        "friction": 0.5
+      },
+      "visual": {
+        "origin": {
+          // 左后涵道位置：X=-1.5(后) Y=-2.6225(左) Z=-2.395(下)
+          "xyz": "-1.5 -2.6225 -2.395",
+          "rpy-deg": "0 0 -30"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Shroud"
+        }
+      }
+    },
+    {
+      // Prop_RL：左后螺旋桨
+      "name": "Prop_RL",
+      "inertial": {
+        "origin": {
+          "xyz": "-1.5 -2.6225 -2.395",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.79,
+              "length": 0.29
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "-1.5 -2.6225 -2.395",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Rotor"
+        }
+      }
+    },
+    {
+      // Shroud_RR：右后涵道风扇罩
+      "name": "Shroud_RR",
+      "inertial": {
+        "mass": 0.0,
+        "inertia": {
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "box": {
+              "size": "2.10 2.10 0.32"
+            }
+          }
+        }
+      },
+      "collision": {
+        "restitution": 0.1,
+        "friction": 0.5
+      },
+      "visual": {
+        "origin": {
+          // 右后涵道位置：X=-1.5(后) Y=2.6225(右) Z=-2.395(下)
+          "xyz": "-1.5 2.6225 -2.395",
+          "rpy-deg": "0 0 30"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Shroud"
+        }
+      }
+    },
+    {
+      // Prop_RR：右后螺旋桨
+      "name": "Prop_RR",
+      "inertial": {
+        "origin": {
+          "xyz": "-1.5 2.6225 -2.395",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "drag-coefficient": 0.0,
+          "type": "geometry",
+          "geometry": {
+            "cylinder": {
+              "radius": 0.79,
+              "length": 0.29
+            }
+          }
+        }
+      },
+      "visual": {
+        "origin": {
+          "xyz": "-1.5 2.6225 -2.395",
+          "rpy-deg": "0 0 0"
+        },
+        "geometry": {
+          "type": "unreal_mesh",
+          "name": "/Drone/AirTaxi/AirTaxi_Rotor"
+        }
+      }
+    },
+    {
+      // Wing_L：左机翼
+      // 升阻气动模型，在固定翼模式下产生升力
+      "name": "Wing_L",
+      "inertial": {
+        "origin": {
+          "xyz": "0.0 -1.0 0.0",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          // 升阻模型，用于固定翼飞行
+          "type": "lift-drag",
+          "lift-drag": {
+            // 零升力攻角(弧度)
+            "alpha-0": 0.06,
+            // 失速攻角(弧度)
+            "alpha-stall": 0.64,
+            // 升力系数斜率(/弧度)
+            "c-lift-alpha": 0.5,
+            // 失速后升力斜率
+            "c-lift-alpha-stall": -0.8,
+            // 阻力系数斜率
+            "c-drag-alpha": 0.6,
+            "c-drag-alpha-stall": -0.9,
+            // 俯仰力矩系数
+            "c-moment-alpha": 0.0,
+            "c-moment-alpha-stall": 0.0,
+            // 机翼面积(平方米)
+            "area": 5.0,
+            // 副翼升力系数/弧度
+            "control-surface-cl-per-rad": -0.5,
+            // 副翼阻力系数/弧度
+            "control-surface-cd-per-rad": 0.0,
+            // 副翼力矩系数/弧度
+            "control-surface-cm-per-rad": -0.1,
+            // 压力中心位置
+            "center-pressure-xyz": "0 0 0",
+            // 前向向量
+            "forward-xyz": "1.0 0 0",
+            // 上方向量（NED坐标系-Z为上）
+            "upward-xyz": "0 0 -1.0"
+          }
+        }
+      }
+    },
+    {
+      // Wing_L_Aileron：左副翼
+      // 控制面，用于固定翼模式的横滚控制
+      "name": "Wing_L_Aileron",
+      "inertial": {
+        "origin": {
+          "xyz": "0.0 -0.5 0.0",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        }
+      }
+    },
+    {
+      // Wing_R：右机翼
+      "name": "Wing_R",
+      "inertial": {
+        "origin": {
+          "xyz": "0.0 1.0 0.0",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          // 升阻模型，与左翼参数一致
+          "type": "lift-drag",
+          "lift-drag": {
+            "alpha-0": 0.06,
+            "alpha-stall": 0.64,
+            "c-lift-alpha": 0.5,
+            "c-lift-alpha-stall": -0.8,
+            "c-drag-alpha": 0.6,
+            "c-drag-alpha-stall": -0.9,
+            "c-moment-alpha": 0.0,
+            "c-moment-alpha-stall": 0.0,
+            "area": 5.0,
+            "control-surface-cl-per-rad": -0.5,
+            "control-surface-cd-per-rad": 0.0,
+            "control-surface-cm-per-rad": -0.1,
+            "center-pressure-xyz": "0 0 0",
+            "forward-xyz": "1.0 0 0",
+            "upward-xyz": "0 0 -1.0"
+          }
+        }
+      }
+    },
+    {
+      // Wing_R_Aileron：右副翼
+      "name": "Wing_R_Aileron",
+      "inertial": {
+        "origin": {
+          "xyz": "0.0 0.5 0.0",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        }
+      }
+    },
+    {
+      // Wing_Tail：尾翼
+      // 俯仰稳定性，包含升降舵
+      "name": "Wing_Tail",
+      "inertial": {
+        "origin": {
+          "xyz": "0.0 0.0 0.0",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        },
+        "aerodynamics": {
+          "type": "lift-drag",
+          "lift-drag": {
+            "alpha-0": 0.0,
+            "alpha-stall": 0.3,
+            "c-lift-alpha": 0,
+            "c-lift-alpha-stall": 0,
+            "c-drag-alpha": 0.0,
+            "c-drag-alpha-stall": 0.0,
+            "c-moment-alpha": 0.0,
+            "c-moment-alpha-stall": 0.0,
+            // 尾翼面积小(0.5平方米)
+            "area": 0.5,
+            "control-surface-cl-per-rad": 0.0,
+            "control-surface-cd-per-rad": 0.0,
+            // 升降舵力矩系数(2.0)，纯俯仰控制
+            "control-surface-cm-per-rad": 2.0,
+            "center-pressure-xyz": "0 0 0",
+            "forward-xyz": "1.0 0 0",
+            "upward-xyz": "0 0 -1.0"
+          }
+        }
+      }
+    },
+    {
+      // Elevator：升降舵
+      // 控制面，用于固定翼模式的俯仰控制
+      "name": "Elevator",
+      "inertial": {
+        "origin": {
+          // 位置：X=-6.0(后方6米)
+          "xyz": "-6.0 0.0 0.0",
+          "rpy-deg": "0 0 0"
+        },
+        "mass": 0.0,
+        "inertia": {
+          "type": "point-mass"
+        }
+      }
+    }
+  ],
+
+  // ==================== 关节定义 ====================
+  "joints": [
+    // 涵道和螺旋桨关节
+    { "id": "Frame_Shroud_FL", "type": "fixed", "parent-link": "Frame", "child-link": "Shroud_FL", "axis": "0 0 1" },
+    { "id": "Frame_Prop_FL", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_FL", "axis": "0 0 1" },
+    { "id": "Frame_Shroud_FR", "type": "fixed", "parent-link": "Frame", "child-link": "Shroud_FR", "axis": "0 0 1" },
+    { "id": "Frame_Prop_FR", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_FR", "axis": "0 0 1" },
+    { "id": "Frame_Shroud_RL", "type": "fixed", "parent-link": "Frame", "child-link": "Shroud_RL", "axis": "0 0 1" },
+    { "id": "Frame_Prop_RL", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_RL", "axis": "0 0 1" },
+    { "id": "Frame_Shroud_RR", "type": "fixed", "parent-link": "Frame", "child-link": "Shroud_RR", "axis": "0 0 1" },
+    { "id": "Frame_Prop_RR", "type": "fixed", "parent-link": "Frame", "child-link": "Prop_RR", "axis": "0 0 1" },
+    // 机翼和副翼关节
+    { "id": "Frame_Wing_L", "type": "fixed", "parent-link": "Frame", "child-link": "Wing_L", "axis": "0 1 0" },
+    { "id": "Wing_L_Wing_L_Aileron", "type": "fixed", "parent-link": "Wing_L", "child-link": "Wing_L_Aileron", "axis": "0 1 0" },
+    { "id": "Frame_Wing_R", "type": "fixed", "parent-link": "Frame", "child-link": "Wing_R", "axis": "0 1 0" },
+    { "id": "Wing_R_Wing_R_Aileron", "type": "fixed", "parent-link": "Wing_R", "child-link": "Wing_R_Aileron", "axis": "0 1 0" },
+    // 尾翼和升降舵关节
+    { "id": "Frame_Wing_Tail", "type": "fixed", "parent-link": "Frame", "child-link": "Wing_Tail", "axis": "0 1 0" },
+    { "id": "Wing_Tail_Elevator", "type": "fixed", "parent-link": "Wing_Tail", "child-link": "Elevator", "axis": "0 1 0" }
+  ],
+
+  // ==================== 控制器定义 ====================
+  "controller": {
+    "id": "Simple_Flight_Controller",
+    // 机型：vtol-quad-tiltrotor = 四倾斜旋翼VTOL
+    // 多旋翼悬停 + 固定翼前飞
+    "airframe-setup": "vtol-quad-tiltrotor",
+    // 控制器类型：simple-flight-api
+    "type": "simple-flight-api",
+    "simple-flight-api-settings": {
+      "parameters": {
+        // ===== 多旋翼模式参数 =====
+        // 角速率PID：最大角速率(弧度/秒)
+        // 值>5会导致振荡
+        "MC_ROLLRATE_MAX": 0.3,
+        "MC_PITCHRATE_MAX": 0.3,
+        "MC_YAWRATE_MAX": 0.3,
+        // 角速率PID参数
+        "MC_YAWRATE_P": 1.2,
+        "MC_YAWRATE_D": 0.8,
+        // 角度限制(弧度)
+        // 超过PI/5.5会导致垂直推力不足
+        "MC_ROLL_MAX": 0.262,
+        "MC_PITCH_MAX": 0.262,
+        "MC_YAW_P": 1.2,
+        "MC_YAW_D": 0.8,
+        // 位置PID参数
+        "MPC_XY_P": 0.05,
+        "MPC_XY_I": 0.01,
+        "MPC_XY_D": 0.05,
+        // 速度PID：最小推力
+        "MPC_MIN_THR": 0.001,
+
+        // ===== 固定翼模式参数 =====
+        // 失速空速(米/秒)
+        "FW_AIRSPD_STALL": 2,
+        // 偏航速率限制(弧度/秒)
+        "FW_Y_RMAX": 1.0,
+        // 俯仰限制(弧度)
+        "FW_PITCH_MAX": 0.262,
+        "FW_YAW_P": 0.4,
+        // 垂直速度PID参数
+        "FW_Z_VEL_P": 0.07,
+        "FW_Z_VEL_I": 0.02,
+        "FW_Z_VEL_D": 0.05
+      },
+      // 执行器顺序：4个旋翼 + 4个倾斜 + 2个副翼 + 1个升降舵
+      "actuator-order": [
+        { "id": "Prop_FR_actuator" },
+        { "id": "Prop_RL_actuator" },
+        { "id": "Prop_FL_actuator" },
+        { "id": "Prop_RR_actuator" },
+        { "id": "Prop_FR_tilt_actuator" },
+        { "id": "Prop_RL_tilt_actuator" },
+        { "id": "Prop_FL_tilt_actuator" },
+        { "id": "Prop_RR_tilt_actuator" },
+        { "id": "Wing_L_Aileron_actuator" },
+        { "id": "Wing_R_Aileron_actuator" },
+        { "id": "Elevator_actuator" }
+      ]
+    }
+  },
+
+  // ==================== 执行器定义 ====================
+  "actuators": [
+    {
+      // 左前旋翼执行器
+      "name": "Prop_FL_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_FL",
+      "origin": { "xyz": "3.2 -3.2 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 顺时针旋转
+        "turning-direction": "clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        // 倾斜旋翼螺旋桨更大(0.6m vs 0.2286m)
+        "propeller-diameter": 0.6,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      // 右前旋翼执行器
+      "name": "Prop_FR_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_FR",
+      "origin": { "xyz": "3.2 3.2 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 逆时针旋转
+        "turning-direction": "counter-clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.6,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      // 左后旋翼执行器
+      "name": "Prop_RL_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_RL",
+      "origin": { "xyz": "-3.2 -3.2 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 逆时针旋转
+        "turning-direction": "counter-clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.6,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      // 右后旋翼执行器
+      "name": "Prop_RR_actuator",
+      "type": "rotor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Prop_RR",
+      "origin": { "xyz": "-3.2 3.2 -0.01", "rpy-deg": "0 0 0" },
+      "rotor-settings": {
+        // 顺时针旋转
+        "turning-direction": "clock-wise",
+        "normal-vector": "0.0 0.0 -1.0",
+        "coeff-of-thrust": 0.109919,
+        "coeff-of-torque": 0.040164,
+        "max-rpm": 6396.667,
+        "propeller-diameter": 0.6,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      // 左前倾斜执行器：垂直(多旋翼)到水平(固定翼)
+      "name": "Prop_FL_tilt_actuator",
+      "type": "tilt",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Shroud_FL",
+      "tilt-settings": {
+        // 关联的旋翼执行器
+        "target": "Prop_FL_actuator",
+        // 最小倾角：0弧度（垂直，多旋翼模式）
+        "angle-min": 0.0,
+        // 最大倾角：1.57弧度≈90度（水平，固定翼模式）
+        "angle-max": 1.57,
+        // 倾斜轴：-Y方向
+        "axis": "0.0 -1.0 0.0",
+        // 平滑时间常数：0.5秒（缓慢倾斜以保持稳定）
+        "smoothing-tc": 0.5
+      }
+    },
+    {
+      // 左后倾斜执行器
+      "name": "Prop_RL_tilt_actuator",
+      "type": "tilt",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Shroud_RL",
+      "tilt-settings": {
+        "target": "Prop_RL_actuator",
+        "angle-min": 0.0,
+        "angle-max": 1.57,
+        "axis": "0.0 -1.0 0.0",
+        "smoothing-tc": 0.5
+      }
+    },
+    {
+      // 右前倾斜执行器
+      "name": "Prop_FR_tilt_actuator",
+      "type": "tilt",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Shroud_FR",
+      "tilt-settings": {
+        "target": "Prop_FR_actuator",
+        "angle-min": 0.0,
+        "angle-max": 1.57,
+        "axis": "0.0 -1.0 0.0",
+        "smoothing-tc": 0.5
+      }
+    },
+    {
+      // 右后倾斜执行器
+      "name": "Prop_RR_tilt_actuator",
+      "type": "tilt",
+      "enabled": true,
+      "parent-link": "Frame",
+      "child-link": "Shroud_RR",
+      "tilt-settings": {
+        "target": "Prop_RR_actuator",
+        "angle-min": 0.0,
+        "angle-max": 1.57,
+        "axis": "0.0 -1.0 0.0",
+        "smoothing-tc": 0.5
+      }
+    },
+    {
+      // 左副翼执行器：控制机翼副翼偏转
+      "name": "Wing_L_Aileron_actuator",
+      "type": "lift-drag-control-surface",
+      "enabled": true,
+      "parent-link": "Wing_L",
+      "child-link": "Wing_L_Aileron",
+      "lift-drag-control-surface-settings": {
+        // 每单位驱动的旋转量(弧度)
+        "rotation-rate": 0.524,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      // 右副翼执行器
+      "name": "Wing_R_Aileron_actuator",
+      "type": "lift-drag-control-surface",
+      "enabled": true,
+      "parent-link": "Wing_R",
+      "child-link": "Wing_R_Aileron",
+      "lift-drag-control-surface-settings": {
+        "rotation-rate": 0.524,
+        "smoothing-tc": 0.005
+      }
+    },
+    {
+      // 升降舵执行器：控制尾翼升降舵偏转
+      "name": "Elevator_actuator",
+      "type": "lift-drag-control-surface",
+      "enabled": true,
+      "parent-link": "Wing_Tail",
+      "child-link": "Elevator",
+      "lift-drag-control-surface-settings": {
+        "rotation-rate": 0.524,
+        "smoothing-tc": 0.005
+      }
+    }
+  ],
+
+  // ==================== 传感器定义 ====================
+  "sensors": [
+    {
+      // Chase：第三人称追踪相机
+      "id": "Chase",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.03秒 ≈ 33fps
+      "capture-interval": 0.03,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          "width": 1280,
+          "height": 720,
+          // 视场角：90度
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          // 启用流式传输
+          "streaming-enabled": true,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      // 云台：锁定横滚/俯仰，自由偏航
+      "gimbal": {
+        "lock-roll": true,
+        "lock-pitch": true,
+        "lock-yaw": false
+      },
+      "origin": {
+        // 追踪相机：后方7米，上方2米
+        "xyz": "-7.0 0.0 -2.0",
+        "rpy-deg": "0 -15.95 0"
+      }
+    },
+    {
+      // FrontCamera：前视相机（新增）
+      "id": "FrontCamera",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.033秒 ≈ 30fps
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          // 流式传输：false 节省带宽
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        // 倾斜旋翼机身较大，前视相机安装在机头前方3.5m处
+        "xyz": "3.5 0.0 -0.5",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // DownCamera：下视相机
+      "id": "DownCamera",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 捕获间隔：0.033秒 ≈ 30fps
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          // 图像类型：0 = 场景(RGB彩色)
+          "image-type": 0,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        },
+        {
+          // 图像类型：1 = 平面深度图
+          "image-type": 1,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          // 默认禁用
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false
+        },
+        {
+          // 图像类型：2 = 透视深度图
+          "image-type": 2,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false
+        },
+        {
+          // 图像类型：3 = 语义分割
+          "image-type": 3,
+          "width": 1280,
+          "height": 720,
+          "fov-degrees": 90,
+          "capture-enabled": false,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false
+        }
+      ],
+      "noise-settings": [
+        {
+          // 噪声设置（默认禁用）
+          "enabled": false,
+          "image-type": 1,
+          // 随机噪声贡献度
+          "rand-contrib": 0.2,
+          // 噪声变化速度
+          "rand-speed": 100000.0,
+          // 噪声颗粒大小
+          "rand-size": 500.0,
+          // 噪声密度
+          "rand-density": 2,
+          // 水平条纹贡献度
+          "horz-wave-contrib": 0.03,
+          // 条纹强度
+          "horz-wave-strength": 0.08,
+          // 条纹垂直尺寸
+          "horz-wave-vert-size": 1.0,
+          // 条纹屏幕尺寸
+          "horz-wave-screen-size": 1.0,
+          // 水平噪声线贡献度
+          "horz-noise-lines-contrib": 1.0,
+          // 噪声线Y方向密度
+          "horz-noise-lines-density-y": 0.01,
+          // 噪声线XY方向密度
+          "horz-noise-lines-density-xy": 0.5,
+          // 水平畸变贡献度
+          "horz-distortion-contrib": 1.0,
+          // 畸变强度
+          "horz-distortion-strength": 0.002
+        }
+      ],
+      "origin": {
+        // 下视相机：机身底部，Z=0.5(下方0.5m)
+        "xyz": "0.0 0.0 0.5",
+        // 俯仰-90度 = 朝下
+        "rpy-deg": "0.0 -90 0.0"
+      }
+    },
+    {
+      // IMU1：惯性测量单元
+      "id": "IMU1",
+      "type": "imu",
+      "enabled": true,
+      "parent-link": "Frame",
+      "accelerometer": {
+        // 速度随机游走(m/s^2/sqrt(Hz))
+        "velocity-random-walk": 0.0123,
+        // 时间常数tau(秒)
+        "tau": 800,
+        // 偏差稳定性(m/s^2)
+        "bias-stability": 2e-5,
+        // 开机偏差(m/s^2)
+        "turn-on-bias": "0 0 0"
+      },
+      "gyroscope": {
+        // 角度随机游走(rad/s/sqrt(Hz))
+        "angle-random-walk": 0.0123,
+        "tau": 500,
+        // 偏差稳定性(rad/s)
+        "bias-stability": 1e-6,
+        "turn-on-bias": "0 0 0"
+      }
+    },
+    {
+      // lidar1：激光雷达传感器
+      // 32通道360°旋转式LiDAR，平衡性能与点云质量
+      "id": "lidar1",
+      "type": "lidar",
+      "enabled": true,
+      "parent-link": "Frame",
+      // 通道数：32个垂直通道
+      "number-of-channels": 32,
+      // 测量范围：300米
+      "range": 300,
+      // 每秒点数：100000
+      "points-per-second": 100000,
+      // 水平旋转频率：10Hz
+      "horizontal-rotation-frequency": 10,
+      // 水平视场：0-360度（全向扫描）
+      "horizontal-fov-start-deg": 0.0,
+      "horizontal-fov-end-deg": 360.0,
+      // 垂直视场：+20~-10度，聚焦前方建筑
+      "vertical-fov-upper-deg": 20.0,
+      "vertical-fov-lower-deg": -10.0,
+      // 禁用自身碰撞检测
+      "disable-self-hits": true,
+      // 不绘制调试点
+      "draw-debug-points": false,
+      "origin": {
+        // LiDAR安装位置：机身中心上方20cm
+        "xyz": "0 0 0.2",
+        "rpy-deg": "0 0 0"
+      },
+      // 报告完整点云数据
+      "report-point-cloud": true,
+      // 不报告极坐标数据
+      "report-azimuth-elevation-range": false,
+      // 不报告无回波点
+      "report-no-return-points": false
+    },
+    {
+      // GPS：全球定位系统
+      // 提供经纬度和海拔信息，用于导航定位
+      "id": "GPS",
+      "type": "gps",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // StereoLeft：双目相机左相机
+      "id": "StereoLeft",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          "image-type": 0,
+          "width": 640,
+          "height": 480,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        "xyz": "0.25 -0.06 -0.10",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // StereoRight：双目相机右相机
+      "id": "StereoRight",
+      "type": "camera",
+      "enabled": true,
+      "parent-link": "Frame",
+      "capture-interval": 0.033,
+      "capture-settings": [
+        {
+          "image-type": 0,
+          "width": 640,
+          "height": 480,
+          "fov-degrees": 90,
+          "capture-enabled": true,
+          "streaming-enabled": false,
+          "pixels-as-float": false,
+          "compress": false,
+          "target-gamma": 2.5
+        }
+      ],
+      "origin": {
+        "xyz": "0.25 0.06 -0.10",
+        "rpy-deg": "0 0 0"
+      }
+    },
+    {
+      // RadioAltimeter：无线电高度表
+      "id": "RadioAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.5,
+      "max-distance": 500.0,
+      "origin": {
+        "xyz": "0 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // LaserAltimeter：激光高度表
+      "id": "LaserAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.2,
+      "max-distance": 300.0,
+      "origin": {
+        "xyz": "0.1 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // UltrasonicAltimeter：超声波高度表
+      "id": "UltrasonicAltimeter",
+      "type": "distance-sensor",
+      "enabled": true,
+      "parent-link": "Frame",
+      "min-distance": 0.02,
+      "max-distance": 10.0,
+      "origin": {
+        "xyz": "-0.1 0 0.05",
+        "rpy-deg": "0 -90 0"
+      }
+    },
+    {
+      // Barometer：气压计
+      "id": "Barometer",
+      "type": "barometer",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // Airspeed：空速传感器
+      "id": "Airspeed",
+      "type": "airspeed",
+      "enabled": true,
+      "parent-link": "Frame"
+    },
+    {
+      // Radar1：毫米波雷达
+      "id": "Radar1",
+      "type": "radar",
+      "enabled": true,
+      "parent-link": "Frame",
+      "fov": {
+        "azimuth-min": -60.0,
+        "azimuth-max": 60.0,
+        "elevation-min": -30.0,
+        "elevation-max": 10.0,
+        "azimuth-resolution": 1.0,
+        "elevation-resolution": 1.0
+      },
+      "range-max": 200.0,
+      "range-resolution": 0.5,
+      "velocity-max": 50.0,
+      "velocity-resolution": 0.1,
+      "detection-interval": 0.1,
+      "track-interval": 0.1,
+      "rcs-adjust-factor": 1.0,
+      "draw-debug-points": false,
+      "origin": {
+        "xyz": "0.25 0 0.0",
+        "rpy-deg": "0 0 0"
+      },
+      "masks": []
+    }
+  ]
+}
