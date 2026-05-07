@@ -116,7 +116,7 @@ class DataRecorder:
         在传感器回调中持续调用，实现持续录像功能
 
         参数：
-            camera_name: 相机名称 ("front" 前视 或 "down" 下视)
+            camera_name: 相机标识键 ("stereo_left"/"down"/"chase"/"stereo_right")
             frame: OpenCV格式的BGR图像帧
         """
         if frame is None:
@@ -125,7 +125,11 @@ class DataRecorder:
             h, w = frame.shape[:2]
             if w != CAMERA_WIDTH or h != CAMERA_HEIGHT:
                 frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
-            if camera_name == "front" and self.front_video_writer and self.front_video_writer.isOpened():
+            if len(frame.shape) == 2:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            elif len(frame.shape) == 3 and frame.shape[2] == 1:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            if camera_name == "stereo_left" and self.front_video_writer and self.front_video_writer.isOpened():
                 self.front_video_writer.write(frame)
             elif camera_name == "down" and self.down_video_writer and self.down_video_writer.isOpened():
                 self.down_video_writer.write(frame)

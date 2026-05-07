@@ -206,7 +206,7 @@ class SensorPanel(QWidget):
     # 传感器名称→预设显示字段映射
     SENSOR_FIELDS_MAP = {
         "IMU1": ["滚转角", "俯仰角", "偏航角", "加速度X", "加速度Y", "加速度Z"],
-        "GPS": ["纬度", "经度", "海拔", "地速", "卫星数"],
+        "GPS": ["纬度", "经度", "海拔", "地速", "定位类型"],
         "RadioAltimeter": ["高度", "量程", "状态"],
         "LaserAltimeter": ["高度", "量程", "状态"],
         "UltrasonicAltimeter": ["高度", "量程", "状态"],

@@ -121,10 +121,17 @@ class DroneControlThread(QThread):
         self._photo_front = False
         self._photo_down = False
         self._photo_chase = False
+        self._photo_stereo_left = False
+        self._photo_stereo_right = False
         self._lidar_snapshot = False
         self._vtol_toggle = False
         self._speed_up = False
         self._speed_down = False
+        self._chase_gimbal_requested = False
+        self._chase_gimbal_roll = 0.0
+        self._chase_gimbal_pitch = -15.0
+        self._chase_gimbal_yaw = 0.0
+        self._drone_obj = None
         # 键盘控制状态：当前按下的方向键对应的速度分量（-1/0/1）
         self.key_vx = 0       # 前后方向（W/S键，1=前进，-1=后退）
         self.key_vy = 0       # 左右方向（D/A键，1=右移，-1=左移）
@@ -133,9 +140,10 @@ class DroneControlThread(QThread):
         self.speed = DEFAULT_SPEED       # 当前飞行速度（米/秒）
         self.yaw_speed = DEFAULT_YAW_SPEED  # 当前偏航速度（度/秒）
         # 缓存的最新相机帧，用于拍照功能
-        self._latest_front_frame = None   # 最新前视相机帧
+        self._latest_stereo_left_frame = None  # 最新双目左相机帧
         self._latest_down_frame = None    # 最新下视相机帧
         self._latest_chase_frame = None   # 最新第三人称相机帧
+        self._latest_stereo_right_frame = None # 最新双目右相机帧
         # 缓存的最新LiDAR数据，用于快照保存
         self._latest_lidar_data = None
         # 帧数据和LiDAR数据的线程锁，保护并发访问
@@ -186,6 +194,14 @@ class DroneControlThread(QThread):
         """请求第三人称相机拍照"""
         self._photo_chase = True
 
+    def request_photo_stereo_left(self):
+        """请求双目左相机拍照"""
+        self._photo_stereo_left = True
+
+    def request_photo_stereo_right(self):
+        """请求双目右相机拍照"""
+        self._photo_stereo_right = True
+
     def request_lidar_snapshot(self):
         """请求保存LiDAR点云快照"""
         self._lidar_snapshot = True
@@ -201,6 +217,13 @@ class DroneControlThread(QThread):
     def request_speed_down(self):
         """请求减速（降低飞行速度）"""
         self._speed_down = True
+
+    def request_set_chase_gimbal(self, roll, pitch, yaw):
+        """请求设置追踪相机云台角度（度）"""
+        self._chase_gimbal_roll = roll
+        self._chase_gimbal_pitch = pitch
+        self._chase_gimbal_yaw = yaw
+        self._chase_gimbal_requested = True
 
     def update_keyboard(self, vx, vy, vz, yaw):
         """
@@ -318,6 +341,7 @@ class DroneControlThread(QThread):
 
             # 步骤4：创建无人机对象
             drone = Drone(client, world, "Drone1")
+            self._drone_obj = drone
             self._log(f"无人机创建完成: {self.drone_model_name}", "INFO")
 
             # 保存home_geo_point用于UDP位置控制坐标转换
@@ -328,7 +352,8 @@ class DroneControlThread(QThread):
             self._setup_sensors(client, drone, data_recorder)
 
             # 初始化视频录像写入器
-            data_recorder.init_video_writers()
+            # 录像功能暂时禁用（用户要求取消实时录像，后续可能恢复）
+            # data_recorder.init_video_writers()
 
             # 启动UDP监听（仅UDP模式）
             if udp_manager:
@@ -429,15 +454,13 @@ class DroneControlThread(QThread):
                     await asyncio.sleep(0.03)
 
                     # ---- 处理拍照请求 ----
-                    # 前视拍照：获取缓存的最新前视帧并保存
                     if self._photo_front:
                         self._photo_front = False
                         with self._frame_lock:
-                            f = self._latest_front_frame
+                            f = self._latest_stereo_left_frame
                         if f is not None:
-                            data_recorder.save_photo("front", f)
-                            self._log("前视拍照已保存", "INFO")
-                    # 下视拍照：获取缓存的最新下视帧并保存
+                            data_recorder.save_photo("stereo_left", f)
+                            self._log("双目左相机拍照已保存", "INFO")
                     if self._photo_down:
                         self._photo_down = False
                         with self._frame_lock:
@@ -445,7 +468,6 @@ class DroneControlThread(QThread):
                         if f is not None:
                             data_recorder.save_photo("down", f)
                             self._log("下视拍照已保存", "INFO")
-                    # 第三人称拍照：获取缓存的最新第三人称帧并保存
                     if self._photo_chase:
                         self._photo_chase = False
                         with self._frame_lock:
@@ -453,6 +475,20 @@ class DroneControlThread(QThread):
                         if f is not None:
                             data_recorder.save_photo("chase", f)
                             self._log("第三人称拍照已保存", "INFO")
+                    if self._photo_stereo_left:
+                        self._photo_stereo_left = False
+                        with self._frame_lock:
+                            f = self._latest_stereo_left_frame
+                        if f is not None:
+                            data_recorder.save_photo("stereo_left", f)
+                            self._log("双目左相机拍照已保存", "INFO")
+                    if self._photo_stereo_right:
+                        self._photo_stereo_right = False
+                        with self._frame_lock:
+                            f = self._latest_stereo_right_frame
+                        if f is not None:
+                            data_recorder.save_photo("stereo_right", f)
+                            self._log("双目右相机拍照已保存", "INFO")
 
                     # ---- 处理LiDAR快照请求 ----
                     if self._lidar_snapshot:
@@ -490,6 +526,26 @@ class DroneControlThread(QThread):
                         self.speed = max(self.speed - SPEED_STEP, MIN_SPEED)
                         self._log(f"飞行速度: {self.speed:.1f} m/s", "INFO")
                         self.status_signal.emit("speed", f"{self.speed:.1f}")
+
+                    # ---- 处理追踪相机云台视角切换请求 ----
+                    if self._chase_gimbal_requested and self._drone_obj is not None:
+                        self._chase_gimbal_requested = False
+                        try:
+                            from projectairsim.types import Pose, Vector3, Quaternion
+                            from projectairsim.utils import rpy_to_quaternion
+                            import math
+                            roll_rad = math.radians(self._chase_gimbal_roll)
+                            pitch_rad = math.radians(self._chase_gimbal_pitch)
+                            yaw_rad = math.radians(self._chase_gimbal_yaw)
+                            w_val, x_val, y_val, z_val = rpy_to_quaternion(roll_rad, pitch_rad, yaw_rad)
+                            chase_pose = Pose({
+                                "translation": Vector3({"x": -4.0, "y": 0.0, "z": -1.2}),
+                                "rotation": Quaternion({"w": w_val, "x": x_val, "y": y_val, "z": z_val})
+                            })
+                            self._drone_obj.set_camera_pose("Chase", chase_pose)
+                            self._log(f"追踪相机云台: R={self._chase_gimbal_roll:.0f}° P={self._chase_gimbal_pitch:.0f}° Y={self._chase_gimbal_yaw:.0f}°", "INFO")
+                        except Exception as e:
+                            self._log(f"云台设置失败: {e}", "WARNING")
 
                     # ---- 获取当前位置信息 ----
                     # 位置更新采用分级降频策略，减少RPC调用次数缓解卡顿：
@@ -824,14 +880,15 @@ class DroneControlThread(QThread):
         def on_frame(camera_key, frame):
             """相机帧回调：发送到UI显示并缓存最新帧"""
             self.frame_signal.emit((camera_key, frame))
-            # 缓存最新帧用于拍照功能
             with self._frame_lock:
-                if camera_key == "front":
-                    self._latest_front_frame = frame
+                if camera_key == "stereo_left":
+                    self._latest_stereo_left_frame = frame
                 elif camera_key == "down":
                     self._latest_down_frame = frame
                 elif camera_key == "chase":
                     self._latest_chase_frame = frame
+                elif camera_key == "stereo_right":
+                    self._latest_stereo_right_frame = frame
 
         def on_lidar(lidar_data):
             """LiDAR回调：发送到UI点云可视化并缓存最新数据"""
@@ -874,12 +931,14 @@ class DroneControlThread(QThread):
                 self.frame_signal.emit((camera_name, frame))
                 data_recorder.write_video_frame(camera_name, frame)
                 with self._frame_lock:
-                    if camera_name == "front":
-                        self._latest_front_frame = frame
+                    if camera_name == "stereo_left":
+                        self._latest_stereo_left_frame = frame
                     elif camera_name == "down":
                         self._latest_down_frame = frame
                     elif camera_name == "chase":
                         self._latest_chase_frame = frame
+                    elif camera_name == "stereo_right":
+                        self._latest_stereo_right_frame = frame
         except Exception:
             pass
 

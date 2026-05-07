@@ -536,19 +536,21 @@ class GroundStationWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 视频显示（使用QStackedWidget切换前视/下视/第三人称）
+        # 视频显示（使用QStackedWidget切换第三人称/双目左/双目右/下视深度）
         self.video_stack = QStackedWidget()
-        self.video_widget_front = VideoWidget()
-        self.video_widget_down = VideoWidget()
         self.video_widget_chase = VideoWidget()
-        self.video_stack.addWidget(self.video_widget_front)
-        self.video_stack.addWidget(self.video_widget_down)
+        self.video_widget_stereo_left = VideoWidget()
+        self.video_widget_stereo_right = VideoWidget()
+        self.video_widget_down = VideoWidget()
         self.video_stack.addWidget(self.video_widget_chase)
+        self.video_stack.addWidget(self.video_widget_stereo_left)
+        self.video_stack.addWidget(self.video_widget_stereo_right)
+        self.video_stack.addWidget(self.video_widget_down)
         layout.addWidget(self.video_stack, 1)
 
         # 悬浮按钮（绝对定位在右上角）
         # 相机切换按钮
-        self.cam_switch_btn = QPushButton("前视相机")
+        self.cam_switch_btn = QPushButton("第三人称")
         self.cam_switch_btn.setObjectName("btnCamSwitch")
         self.cam_switch_btn.setFixedSize(80, 24)
         self.cam_switch_btn.clicked.connect(self._on_camera_switch)
@@ -573,7 +575,8 @@ class GroundStationWindow(QMainWindow):
         self.btn_vtol_video.raise_()
 
         self._current_camera_idx = 0
-        self._camera_names = ["前视相机", "下视相机", "第三人称"]
+        self._camera_names = ["第三人称", "双目左", "双目右", "下视深度"]
+        self._camera_keys = ["chase", "stereo_left", "stereo_right", "down"]
         self._camera_btns = [self.btn_photo, self.cam_switch_btn]  # 快照和切换按钮
 
         # 监听容器大小变化，重新定位按钮
@@ -598,19 +601,34 @@ class GroundStationWindow(QMainWindow):
         self.cam_switch_btn.move(w - x_offset - self.cam_switch_btn.width(), y_offset)
 
     def _on_camera_switch(self):
-        """切换前视/下视/第三人称相机显示"""
-        self._current_camera_idx = (self._current_camera_idx + 1) % 3
+        """切换第三人称→双目左→双目右→下视深度相机显示"""
+        self._current_camera_idx = (self._current_camera_idx + 1) % len(self._camera_names)
         self.video_stack.setCurrentIndex(self._current_camera_idx)
         self.cam_switch_btn.setText(self._camera_names[self._current_camera_idx])
 
+    def _switch_to_camera(self, idx):
+        """快捷键切换到指定索引的相机视图"""
+        if 0 <= idx < len(self._camera_names):
+            self._current_camera_idx = idx
+            self.video_stack.setCurrentIndex(idx)
+            self.cam_switch_btn.setText(self._camera_names[idx])
+
+    def _set_chase_gimbal(self, roll, pitch, yaw):
+        """设置追踪相机云台角度（度）"""
+        if self.control_thread and self.control_thread.isRunning():
+            self.control_thread.request_set_chase_gimbal(roll, pitch, yaw)
+
     def _on_video_photo(self):
         """视频区域拍照按钮：根据当前显示的相机拍照"""
-        if self._current_camera_idx == 0:
-            self._action("photo_front")
-        elif self._current_camera_idx == 1:
+        camera_key = self._camera_keys[self._current_camera_idx]
+        if camera_key == "stereo_left":
+            self._action("photo_stereo_left")
+        elif camera_key == "down":
             self._action("photo_down")
-        else:
+        elif camera_key == "chase":
             self._action("photo_chase")
+        elif camera_key == "stereo_right":
+            self._action("photo_stereo_right")
 
     def _create_bottom_panel(self):
         """
@@ -744,22 +762,26 @@ class GroundStationWindow(QMainWindow):
     def _action(self, act):
         """
         发送快捷操作请求到控制线程
-        
+
         参数：
             act: 操作类型标识
-                "photo_front" - 前视拍照
-                "photo_down"  - 下视拍照
-                "lidar"       - LiDAR快照
-                "vtol"        - VTOL模式切换
+                "photo_stereo_left" - 双目左相机拍照
+                "photo_down"        - 下视拍照
+                "photo_chase"       - 第三人称拍照
+                "photo_stereo_right"- 双目右相机拍照
+                "lidar"             - LiDAR快照
+                "vtol"              - VTOL模式切换
         """
         if not self.control_thread or not self.control_thread.isRunning():
             return
-        if act == "photo_front":
-            self.control_thread.request_photo_front()
+        if act == "photo_front" or act == "photo_stereo_left":
+            self.control_thread.request_photo_stereo_left()
         elif act == "photo_down":
             self.control_thread.request_photo_down()
         elif act == "photo_chase":
             self.control_thread.request_photo_chase()
+        elif act == "photo_stereo_right":
+            self.control_thread.request_photo_stereo_right()
         elif act == "lidar":
             self.control_thread.request_lidar_snapshot()
         elif act == "vtol":
@@ -774,6 +796,8 @@ class GroundStationWindow(QMainWindow):
         Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus,
         Qt.Key.Key_F, Qt.Key.Key_G, Qt.Key.Key_L,
         Qt.Key.Key_T, Qt.Key.Key_V, Qt.Key.Key_Q,
+        Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3, Qt.Key.Key_4,
+        Qt.Key.Key_5, Qt.Key.Key_6, Qt.Key.Key_7, Qt.Key.Key_8, Qt.Key.Key_9,
     }
 
     # pynput特殊键到Qt.Key的映射（方向键等）
@@ -793,6 +817,9 @@ class GroundStationWindow(QMainWindow):
         'v': Qt.Key.Key_V, 'q': Qt.Key.Key_Q,
         '+': Qt.Key.Key_Plus, '=': Qt.Key.Key_Equal,
         '-': Qt.Key.Key_Minus,
+        '1': Qt.Key.Key_1, '2': Qt.Key.Key_2, '3': Qt.Key.Key_3,
+        '4': Qt.Key.Key_4, '5': Qt.Key.Key_5, '6': Qt.Key.Key_6,
+        '7': Qt.Key.Key_7, '8': Qt.Key.Key_8, '9': Qt.Key.Key_9,
     }
 
     def _convert_pynput_key(self, key):
@@ -865,6 +892,18 @@ class GroundStationWindow(QMainWindow):
         """
         处理单次触发的快捷键动作
         PyQt6的keyPressEvent和pynput回调共用此方法，避免重复代码
+
+        快捷键说明：
+        - +/-: 加速/减速
+        - ↑: 起飞
+        - F: 双目左相机拍照
+        - G: 下视相机拍照
+        - L: LiDAR快照
+        - T: 着陆
+        - V: VTOL切换
+        - Q: 退出
+        - 1/2/3/4: 切换到第三人称/双目左/双目右/下视深度相机
+        - 5/6/7/8/9: 追踪相机云台视角切换（前/后/左/右/俯仰重置）
         """
         if qt_key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal) and self.control_thread and self.control_thread.isRunning():
             self.control_thread.request_speed_up()
@@ -873,7 +912,7 @@ class GroundStationWindow(QMainWindow):
         elif qt_key == Qt.Key.Key_Up and self.control_thread and self.control_thread.isRunning():
             self.control_thread.request_takeoff()
         elif qt_key == Qt.Key.Key_F:
-            self._action("photo_front")
+            self._action("photo_stereo_left")
         elif qt_key == Qt.Key.Key_G:
             self._action("photo_down")
         elif qt_key == Qt.Key.Key_L:
@@ -884,6 +923,24 @@ class GroundStationWindow(QMainWindow):
             self._action("vtol")
         elif qt_key == Qt.Key.Key_Q:
             self._on_exit()
+        elif qt_key == Qt.Key.Key_1:
+            self._switch_to_camera(0)
+        elif qt_key == Qt.Key.Key_2:
+            self._switch_to_camera(1)
+        elif qt_key == Qt.Key.Key_3:
+            self._switch_to_camera(2)
+        elif qt_key == Qt.Key.Key_4:
+            self._switch_to_camera(3)
+        elif qt_key == Qt.Key.Key_5:
+            self._set_chase_gimbal(0, -15, 0)
+        elif qt_key == Qt.Key.Key_6:
+            self._set_chase_gimbal(0, -15, 180)
+        elif qt_key == Qt.Key.Key_7:
+            self._set_chase_gimbal(0, -15, 90)
+        elif qt_key == Qt.Key.Key_8:
+            self._set_chase_gimbal(0, -15, -90)
+        elif qt_key == Qt.Key.Key_9:
+            self._set_chase_gimbal(0, -60, 0)
 
     def eventFilter(self, obj, event):
         """
@@ -910,12 +967,14 @@ class GroundStationWindow(QMainWindow):
         
         快捷键映射：
         +/-: 加速/减速
-        F: 前视拍照
+        F: 双目左相机拍照
         G: 下视拍照
         L: LiDAR快照
         T: 着陆
         V: VTOL切换
         Q: 退出
+        1/2/3/4: 切换到第三人称/双目左/双目右/下视深度相机
+        5/6/7/8/9: 追踪相机云台视角（前/后/左/右/俯视）
         """
         self.keys_pressed.add(event.key())
         if event.key() in self._CONTROL_KEYS:
@@ -1027,18 +1086,20 @@ class GroundStationWindow(QMainWindow):
     def _on_frame(self, data):
         """
         视频帧信号处理：根据相机名称分发到对应的视频显示控件
-        前视相机帧 → video_widget_front
-        下视相机帧 → video_widget_down
+        双目左相机帧 → video_widget_stereo_left
+        下视深度相机帧 → video_widget_down
         第三人称帧 → video_widget_chase
-        同时缓存最新帧用于拍照功能
+        双目右相机帧 → video_widget_stereo_right
         """
         camera_name, frame = data
-        if camera_name == "front":
-            self.video_widget_front.update_frame(camera_name, frame)
+        if camera_name == "stereo_left":
+            self.video_widget_stereo_left.update_frame(camera_name, frame)
         elif camera_name == "down":
             self.video_widget_down.update_frame(camera_name, frame)
         elif camera_name == "chase":
             self.video_widget_chase.update_frame(camera_name, frame)
+        elif camera_name == "stereo_right":
+            self.video_widget_stereo_right.update_frame(camera_name, frame)
 
     @pyqtSlot(object)
     def _on_lidar(self, lidar_data):
@@ -1099,9 +1160,10 @@ class GroundStationWindow(QMainWindow):
         self.keys_pressed.clear()
 
         # 清除所有视频和LiDAR显示
-        self.video_widget_front.clear_frame()
+        self.video_widget_stereo_left.clear_frame()
         self.video_widget_down.clear_frame()
         self.video_widget_chase.clear_frame()
+        self.video_widget_stereo_right.clear_frame()
         self.lidar3d_widget.clear_points()
 
         # 重置传感器数据面板

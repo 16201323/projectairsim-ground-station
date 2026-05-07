@@ -61,16 +61,13 @@ class SensorManager:
         "RadioAltimeter": SensorType.RADIO_ALTIMETER,
         "LaserAltimeter": SensorType.LASER_ALTIMETER,
         "UltrasonicAltimeter": SensorType.ULTRASONIC_ALTIMETER,
-        "FrontCamera": SensorType.CAMERA,
         "DownCamera": SensorType.CAMERA,
         "Chase": SensorType.CAMERA,
         "StereoLeft": SensorType.CAMERA,
         "StereoRight": SensorType.CAMERA,
     }
 
-    # 相机ID → camera_key映射（用于录像和拍照）
     CAMERA_KEY_MAP = {
-        "FrontCamera": "front",
         "DownCamera": "down",
         "Chase": "chase",
         "StereoLeft": "stereo_left",
@@ -373,9 +370,11 @@ class SensorManager:
         """
         for topic_key, topic_path in topics.items():
             if "camera" in topic_key:
-                # 相机类型：使用camera回调
                 if isinstance(callback, CameraCallback):
-                    self._client.subscribe(topic_path, callback)
+                    if "scene_camera" in topic_key:
+                        self._client.subscribe(topic_path, callback)
+                    elif "depth" in topic_key or "segmentation" in topic_key:
+                        pass
             elif "lidar" in topic_key:
                 if hasattr(callback, '__call__'):
                     self._client.subscribe(topic_path, callback)

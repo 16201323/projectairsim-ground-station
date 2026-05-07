@@ -364,194 +364,84 @@
   "sensors": [
     {
       // Chase：第三人称追踪相机
-      // 用于观察无人机，不用于数据采集
+      // 8MP(3840x2160)，H-FOV 120°，三轴自由云台
+      // 用户可自由切换视角，观察无人机各方位
       "id": "Chase",
       "type": "camera",
       "enabled": true,
       "parent-link": "Frame",
-      // 捕获间隔：0.05秒 ≈ 20fps
-      // 从0.03(33fps)降至0.05(20fps)，减少帧处理负担
-      // 追踪相机仅用于观察，20fps足够流畅
-      "capture-interval": 0.05,
+      "capture-interval": 0.033,
       "capture-settings": [
         {
-          // 图像类型：0 = 场景(RGB彩色)
           "image-type": 0,
-          // 分辨率：1280x720（高清）
-          // 第三人称追踪相机需要高清画面以便观察无人机细节
-          "width": 1280,
-          "height": 720,
-          // 视场角：90度
-          "fov-degrees": 90,
-          // 启用捕获
+          "width": 3840,
+          "height": 2160,
+          "fov-degrees": 120,
           "capture-enabled": true,
-          // 启用流式传输：追踪相机需要实时显示
           "streaming-enabled": true,
-          // 像素为浮点：false = uint8(0-255)
           "pixels-as-float": false,
-          // 压缩：false = 不压缩
           "compress": false,
-          // 目标伽马值：2.5，用于HDR色调映射
           "target-gamma": 2.5
         }
       ],
-      // 云台：锁定横滚/俯仰，自由偏航
-      // 保持相机水平朝前
       "gimbal": {
-        "lock-roll": true,
-        "lock-pitch": true,
+        "lock-roll": false,
+        "lock-pitch": false,
         "lock-yaw": false
       },
       "origin": {
-        // 追踪相机：后方7米，上方2米
-        "xyz": "-7.0 0.0 -2.0",
-        // 俯仰-15.95度，适配7m/2m位置
-        "rpy-deg": "0 -15.95 0"
+        "xyz": "-4.0 0.0 -1.2",
+        "rpy-deg": "0 -8 0"
       }
     },
     {
-      // FrontCamera：前视相机（新增）
-      // 安装在机头前方，朝前拍摄
-      // 用于前方录像和手动拍照
-      "id": "FrontCamera",
-      "type": "camera",
-      "enabled": true,
-      "parent-link": "Frame",
-      // 捕获间隔：0.05秒 ≈ 20fps
-      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
-      "capture-interval": 0.05,
-      "capture-settings": [
-        {
-          // 图像类型：0 = 场景(RGB彩色)
-          "image-type": 0,
-          // 分辨率：640x360（较低分辨率节省存储/带宽）
-          // 可改为1280x720获得更高质量（存储更大） 960x540
-          "width": 1280,
-          "height": 720,
-          // 视场角：90度广角
-          "fov-degrees": 90,
-          "capture-enabled": true,
-          // 流式传输：false 节省带宽
-          // 通过订阅回调获取图像
-          "streaming-enabled": false,
-          "pixels-as-float": false,
-          "compress": false,
-          "target-gamma": 2.5
-        }
-      ],
-      "origin": {
-        // 前视相机位置：
-        // X=0.25(前方300cm) Y=0(居中) Z=-0.10(上方10cm)
-        "xyz": "0.25 0.0 -0.10",
-        // 朝向：rpy=0 = 水平朝前
-        "rpy-deg": "0 0 0"
-      }
-    },
-    {
-      // DownCamera：下视相机
-      // 安装在机身底部，朝下拍摄
-      // 用于地面录像和手动拍照
+      // DownCamera：下视深度相机
+      // 8MP(3840x2160)，H-FOV 120°(V-FOV≈68.8°)
+      // 主输出：平面深度图(DepthPlanar)，用于高度测量和避障
+      // 可选输出：RGB场景图、语义分割（按需API启用）
       "id": "DownCamera",
       "type": "camera",
       "enabled": true,
       "parent-link": "Frame",
-      // 捕获间隔：0.05秒 ≈ 20fps
-      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
-      "capture-interval": 0.05,
+      "capture-interval": 0.033,
       "capture-settings": [
         {
-          // 图像类型：0 = 场景(RGB彩色)
+          // image-type 0 = RGB场景（启用，用于UI实时显示）
           "image-type": 0,
-          // 分辨率：与前视相机一致
-          "width": 1280,
-          "height": 720,
-          "fov-degrees": 90,
+          "width": 3840,
+          "height": 2160,
+          "fov-degrees": 120,
           "capture-enabled": true,
-          "streaming-enabled": false,
+          "streaming-enabled": true,
           "pixels-as-float": false,
           "compress": false,
           "target-gamma": 2.5
         },
         {
-          // 图像类型：1 = 平面深度图
-          // 正交深度，像素值=到相机距离
+          // image-type 1 = 平面深度图（主输出，正交投影距离=高度）
           "image-type": 1,
-          "width": 1280,
-          "height": 720,
-          "fov-degrees": 90,
-          // 默认禁用，可通过API启用
-          "capture-enabled": false,
-          "streaming-enabled": false,
-          // 像素为浮点：true = 浮点深度值
-          // 深度范围：0~100米
-          "pixels-as-float": true,
-          "compress": false
-        },
-        {
-          // 图像类型：2 = 透视深度图
-          // 透视深度，更接近真实相机
-          "image-type": 2,
-          "width": 1280,
-          "height": 720,
-          "fov-degrees": 90,
-          "capture-enabled": false,
+          "width": 3840,
+          "height": 2160,
+          "fov-degrees": 120,
+          "capture-enabled": true,
           "streaming-enabled": false,
           "pixels-as-float": true,
           "compress": false
         },
         {
-          // 图像类型：3 = 语义分割
-          // 像素值=物体类别ID，用于语义分割
+          // image-type 3 = 语义分割（默认禁用，按需启用用于着陆区域分类）
           "image-type": 3,
-          "width": 1280,
-          "height": 720,
-          "fov-degrees": 90,
+          "width": 3840,
+          "height": 2160,
+          "fov-degrees": 120,
           "capture-enabled": false,
           "streaming-enabled": false,
           "pixels-as-float": false,
           "compress": false
         }
       ],
-      "noise-settings": [
-        {
-          // 噪声设置（默认禁用）
-          // 启用后模拟真实传感器噪声
-          "enabled": false,
-          // 噪声应用于图像类型1
-          "image-type": 1,
-          // 以下噪声参数仅在enabled=true时生效
-          // 随机噪声贡献度
-          "rand-contrib": 0.2,
-          // 噪声变化速度
-          "rand-speed": 100000.0,
-          // 噪声颗粒大小
-          "rand-size": 500.0,
-          // 噪声密度
-          "rand-density": 2,
-          // 水平条纹贡献度
-          "horz-wave-contrib": 0.03,
-          // 条纹强度
-          "horz-wave-strength": 0.08,
-          // 条纹垂直尺寸
-          "horz-wave-vert-size": 1.0,
-          // 条纹屏幕尺寸
-          "horz-wave-screen-size": 1.0,
-          // 水平噪声线贡献度
-          "horz-noise-lines-contrib": 1.0,
-          // 噪声线Y方向密度
-          "horz-noise-lines-density-y": 0.01,
-          // 噪声线XY方向密度
-          "horz-noise-lines-density-xy": 0.5,
-          // 水平畸变贡献度
-          "horz-distortion-contrib": 1.0,
-          // 畸变强度
-          "horz-distortion-strength": 0.002
-        }
-      ],
       "origin": {
-        // 下视相机：机身底部中心
         "xyz": "0 0.0 0.0",
-        // 朝向：俯仰-90度 = 朝下
         "rpy-deg": "0 -90 0"
       }
     },
@@ -637,65 +527,57 @@
       "parent-link": "Frame"
     },
     {
-      // StereoLeft：双目相机左相机
-      // 与StereoRight配对组成双目视觉系统
-      // 基线距离0.12m，安装偏左6cm
+      // StereoLeft：双目相机-宽视角（左）
+      // 8MP(3840x2160)，H-FOV 120°(V-FOV≈68.8°)
+      // 与StereoRight(窄视角)构成非对称双目系统
+      // 基线距离：12cm（左右间距0.06×2）
       "id": "StereoLeft",
       "type": "camera",
       "enabled": true,
       "parent-link": "Frame",
-      // 捕获间隔：0.05秒 ≈ 20fps
-      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
-      "capture-interval": 0.05,
+      "capture-interval": 0.033,
       "capture-settings": [
         {
-          // 图像类型：0 = 场景(RGB彩色)
           "image-type": 0,
-          "width": 640,
-          "height": 480,
-          // 视场角：90度
-          "fov-degrees": 90,
+          "width": 3840,
+          "height": 2160,
+          "fov-degrees": 120,
           "capture-enabled": true,
-          "streaming-enabled": false,
+          "streaming-enabled": true,
           "pixels-as-float": false,
           "compress": false,
           "target-gamma": 2.5
         }
       ],
       "origin": {
-        // 左相机位置：机头前方偏左6cm
-        // X=0.25(前方) Y=-0.06(左侧6cm) Z=-0.10(上方10cm)
         "xyz": "0.25 -0.06 -0.10",
         "rpy-deg": "0 0 0"
       }
     },
     {
-      // StereoRight：双目相机右相机
-      // 与StereoLeft配对组成双目视觉系统
-      // 基线距离0.12m，安装偏右6cm
+      // StereoRight：双目相机-窄视角（右）
+      // 8MP(3840x2160)，H-FOV 30°(V-FOV≈17.1°)
+      // 与StereoLeft(宽视角)构成非对称双目系统
+      // 窄视角提供远距离高精度测距
       "id": "StereoRight",
       "type": "camera",
       "enabled": true,
       "parent-link": "Frame",
-      // 捕获间隔：0.05秒 ≈ 20fps
-      // 从0.033(30fps)降至0.05(20fps)，减少帧处理负担
-      "capture-interval": 0.05,
+      "capture-interval": 0.033,
       "capture-settings": [
         {
           "image-type": 0,
-          "width": 640,
-          "height": 480,
-          "fov-degrees": 90,
+          "width": 3840,
+          "height": 2160,
+          "fov-degrees": 30,
           "capture-enabled": true,
-          "streaming-enabled": false,
+          "streaming-enabled": true,
           "pixels-as-float": false,
           "compress": false,
           "target-gamma": 2.5
         }
       ],
       "origin": {
-        // 右相机位置：机头前方偏右6cm
-        // X=0.25(前方) Y=0.06(右侧6cm) Z=-0.10(上方10cm)
         "xyz": "0.25 0.06 -0.10",
         "rpy-deg": "0 0 0"
       }
@@ -774,48 +656,57 @@
       "parent-link": "Frame"
     },
     {
-      // Radar1：毫米波雷达
-      // 工作频段76-81GHz，探测距离200米
-      // 用于前方障碍物检测和目标跟踪
+      // Radar1：毫米波雷达（模仿纳雷科技UCM241）
+      // ──────────────────────────────────────────────
+      // UCM241性能参数          → 仿真配置映射
+      // 测距范围 ≥ 150m         → range-max: 150.0
+      // 距离分辨率 ≤ 0.3m       → range-resolution: 0.3
+      // 距离精度 ≤ 0.2m         → 仿真中range为光线投射精确值（需进一步测试验证量化效果）
+      // 水平角精度 ≤ 3°         → azimuth-resolution: 3.0（仿真中角度精度=波束间距）
+      // 俯仰角精度 ≤ 4°         → elevation-resolution: 4.0（同上）
+      // 速度分辨率 ≤ 0.3m/s     → velocity-resolution: 0.3
+      // 速度精度 ≤ 0.2m/s       → 仿真中velocity为精确相对速度（需进一步测试验证量化效果）
+      // ──────────────────────────────────────────────
       "id": "Radar1",
       "type": "radar",
       "enabled": true,
       "parent-link": "Frame",
-      // 视场角：方位±60度（共120度），仰角-30~+10度（共40度）
       "fov": {
-        // 方位角范围：左右各60度，覆盖前方120度扇区
+        // 方位角范围：±60°（共120°），UCM241典型水平FOV
         "azimuth-min": -60.0,
         "azimuth-max": 60.0,
-        // 仰角范围：下30度到上10度，覆盖40度垂直扇区
+        // 仰角范围：-30°~+10°（共40°），UCM241典型垂直FOV
         "elevation-min": -30.0,
         "elevation-max": 10.0,
-        // 方位角分辨率：1.0度
-        "azimuth-resolution": 1.0,
-        // 仰角分辨率：1.0度
-        "elevation-resolution": 1.0
+        // 方位角分辨率：3°，对应UCM241水平角精度≤3°
+        // 波束数：(60-(-60))/3+1 = 41束
+        "azimuth-resolution": 3.0,
+        // 仰角分辨率：4°，对应UCM241俯仰角精度≤4°
+        // 波束数：(10-(-30))/4+1 = 11束
+        "elevation-resolution": 4.0
       },
-      // 最大探测距离：200米
-      "range-max": 200.0,
-      // 距离分辨率：0.5米
-      "range-resolution": 0.5,
-      // 最大速度：50米/秒
+      // 最大探测距离：150m
+      "range-max": 150.0,
+      // 距离分辨率：0.3m
+      "range-resolution": 0.3,
+      // 最大速度：50m/s
       "velocity-max": 50.0,
-      // 速度分辨率：0.1米/秒
-      "velocity-resolution": 0.1,
-      // 检测间隔：0.1秒
+      // 速度分辨率：0.3m/s
+      "velocity-resolution": 0.3,
+      // 检测间隔：0.1秒（10Hz检测率）
       "detection-interval": 0.1,
-      // 跟踪间隔：0.1秒
+      // 跟踪间隔：0.1秒（10Hz跟踪更新）
       "track-interval": 0.1,
       // RCS调整因子：1.0（默认）
       "rcs-adjust-factor": 1.0,
       // 绘制调试点：false
       "draw-debug-points": false,
       "origin": {
-        // 毫米波雷达：机头前方
+        // 毫米波雷达：机头前方25cm
         "xyz": "0.25 0 0.0",
         "rpy-deg": "0 0 0"
       },
-      // 掩码：空列表
+      // 掩码：空列表（不过滤任何目标）
       "masks": []
     }
   ]
