@@ -1,5 +1,4 @@
-"""
-UI模块 - 传感器数据面板（双列紧凑卡片布局）
+"""UI模块 - 传感器数据面板（双列紧凑卡片布局）
 
 布局设计（240px宽，每行两个参数，紧凑无滚动）：
 ┌──────────────────────┐
@@ -16,7 +15,7 @@ UI模块 - 传感器数据面板（双列紧凑卡片布局）
 │ 高度 25.27m  量程 500m│
 │ 状态 有效             │
 ├──────────────────────┤
-│ ◆ 大气               │
+│ ◆ 大气机             │
 │ 气高 25.1m   空速 0.0 │
 │ 气压 1013hPa QNH 1013│
 │ 差压 0.0Pa            │
@@ -102,7 +101,7 @@ class SensorGroupBox(QGroupBox):
         col_offset = self._col * 2
         lbl = QLabel(label_text)
         lbl.setFont(QFont("Microsoft YaHei", 7))
-        lbl.setStyleSheet(f"color: {COLOR_TEXT_SECOND};")
+        lbl.setStyleSheet(f"color: {COLOR_TEXT_SECOND}; padding-right: 5px;")
         lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         self._grid.addWidget(lbl, self._row, col_offset)
         val = QLabel(initial_value)
@@ -166,7 +165,7 @@ class SensorPanel(QWidget):
         "Atmosphere": ["气高", "空速", "气压", "QNH", "差压"],
         "lidar1": ["线数", "测距", "点频", "水平", "垂直", "频率"],
         "Radar1": ["目标", "距离", "方位", "仰角"],
-        "StereoCamera": ["基线", "视差"],
+        "StereoCamera": ["左相机", "右相机", "基线", "视差"],
         "FrontCamera": ["分辨率"],
         "DownCamera": ["分辨率"],
         "Chase": ["分辨率"],

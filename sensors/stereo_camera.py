@@ -1,5 +1,4 @@
-"""
-传感器模块 - 双目相机回调处理器
+"""传感器模块 - 双目相机回调处理器
 
 本模块实现双目相机的数据回调处理：
 StereoCameraCallback：管理左右两个相机的数据同步和视差图计算
@@ -63,6 +62,9 @@ class StereoCameraCallback(SensorCallback):
         self._left_frame: Optional[np.ndarray] = None
         self._right_frame: Optional[np.ndarray] = None
         self._disparity_map: Optional[np.ndarray] = None
+        # 左右相机分辨率缓存
+        self._left_resolution: str = "N/A"
+        self._right_resolution: str = "N/A"
         self._left_lock = threading.Lock()
         self._right_lock = threading.Lock()
         # 录像降频：15fps，减少磁盘IO压力
@@ -110,6 +112,14 @@ class StereoCameraCallback(SensorCallback):
             image_msg: 左相机图像消息字典
         """
         try:
+            # 从消息顶层提取分辨率（unpack_image源码确认width/height是顶层字段）
+            w = image_msg.get("width", 0) if image_msg else 0
+            h = image_msg.get("height", 0) if image_msg else 0
+            if w > 0 and h > 0:
+                res_str = f"{w}x{h}"
+                if self._left_resolution != res_str:
+                    self._left_resolution = res_str
+
             if image_msg and "data" in image_msg and len(image_msg["data"]) > 0:
                 frame = unpack_image(image_msg)
                 if frame is not None:
@@ -149,6 +159,14 @@ class StereoCameraCallback(SensorCallback):
             image_msg: 右相机图像消息字典
         """
         try:
+            # 从消息顶层提取分辨率（unpack_image源码确认width/height是顶层字段）
+            w = image_msg.get("width", 0) if image_msg else 0
+            h = image_msg.get("height", 0) if image_msg else 0
+            if w > 0 and h > 0:
+                res_str = f"{w}x{h}"
+                if self._right_resolution != res_str:
+                    self._right_resolution = res_str
+
             if image_msg and "data" in image_msg and len(image_msg["data"]) > 0:
                 frame = unpack_image(image_msg)
                 if frame is not None:
@@ -297,8 +315,12 @@ class StereoCameraCallback(SensorCallback):
         return False
 
     def get_display_fields(self) -> Dict[str, str]:
-        """获取UI显示字段：基线距离和视差"""
-        fields = {"基线": f"{self._baseline:.3f}m"}
+        """获取UI显示字段：基线距离、视差、左右相机分辨率"""
+        fields = {
+            "基线": f"{self._baseline:.3f}m",
+            "左相机": self._left_resolution,
+            "右相机": self._right_resolution,
+        }
         if self._latest_data is not None:
             p = self._latest_data.payload
             fields["视差"] = f"{p.get('disparity_min', 0):.1f}~{p.get('disparity_max', 0):.1f}px"

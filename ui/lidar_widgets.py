@@ -1,5 +1,4 @@
-"""
-UI模块 - LiDAR点云3D可视化控件 (Open3D嵌入版)
+"""UI模块 - LiDAR点云3D可视化控件 (Open3D嵌入版)
 
 Lidar3DWidget：使用Open3D渲染引擎嵌入PyQt6窗口
 
@@ -200,7 +199,11 @@ class Lidar3DWidget(QWidget):
         if not self._vis or not self._hwnd:
             return
 
-        if not self.isVisible() or self.width() < 10 or self.height() < 10:
+        # 窗口正在关闭或已关闭时不再渲染
+        try:
+            if not self.isVisible() or self.width() < 10 or self.height() < 10:
+                return
+        except RuntimeError:
             return
 
         with self._lock:
@@ -238,6 +241,11 @@ class Lidar3DWidget(QWidget):
             pass
 
     def closeEvent(self, event):
+        # 停止定时器，防止断开后仍在回调中操作已销毁的OpenGL上下文
+        if hasattr(self, '_timer') and self._timer:
+            self._timer.stop()
+        if hasattr(self, '_resize_timer') and self._resize_timer:
+            self._resize_timer.stop()
         if self._vis:
             try:
                 self._vis.destroy_window()
