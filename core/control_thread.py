@@ -969,6 +969,8 @@ class DroneControlThread(QThread):
             recorder=data_recorder,
             log_func=self._log,
             frame_callback=on_frame,
+            sim_config_path=self.sim_config_path,
+            robot_config=self.robot_config,
         )
         self._sensor_manager.set_sensor_data_callback(on_sensor_data)
 

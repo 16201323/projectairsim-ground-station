@@ -47,6 +47,7 @@ class LidarCallback(SensorCallback):
         self._sensor_data_callback = sensor_data_callback
         self._latest_lidar_data: Optional[Dict] = None
         self._lidar_lock = threading.Lock()
+        self._config: Dict[str, Any] = {}
 
     def __call__(self, client, lidar_data) -> None:
         """
@@ -58,9 +59,7 @@ class LidarCallback(SensorCallback):
         """
         try:
             if lidar_data is not None:
-                # 先检查节流，避免不必要的numpy数组操作
                 if not self._should_update_ui():
-                    # 仍缓存原始数据用于快照保存
                     with self._lidar_lock:
                         self._latest_lidar_data = lidar_data
                     return
@@ -84,12 +83,10 @@ class LidarCallback(SensorCallback):
                             "z_max": float(np.max(pts[:, 2])),
                         })
 
-                        should_update = self._should_update_ui()
-
-                        if self._sensor_data_callback and self._latest_data and should_update:
+                        if self._sensor_data_callback and self._latest_data:
                             self._sensor_data_callback(self._latest_data)
 
-                        if self._lidar_callback and should_update:
+                        if self._lidar_callback:
                             ui_data = self._downsample_for_ui(lidar_data, pts)
                             self._lidar_callback(ui_data)
         except Exception:
@@ -110,6 +107,23 @@ class LidarCallback(SensorCallback):
         with self._lidar_lock:
             return self._latest_lidar_data
 
+    def set_config(self, config: Dict[str, Any]):
+        """
+        设置激光雷达的固定配置参数（从JSONC配置文件读取）
+
+        参数：
+            config: 配置字典，包含以下字段：
+                - number-of-channels: 线数
+                - range: 测距范围(m)
+                - points-per-second: 点频
+                - horizontal-rotation-frequency: 旋转频率(Hz)
+                - horizontal-fov-start-deg: 水平视场起始角(°)
+                - horizontal-fov-end-deg: 水平视场结束角(°)
+                - vertical-fov-upper-deg: 垂直视场上限(°)
+                - vertical-fov-lower-deg: 垂直视场下限(°)
+        """
+        self._config = config
+
     def save_snapshot(self) -> bool:
         if self._recorder is None:
             return False
@@ -121,12 +135,28 @@ class LidarCallback(SensorCallback):
         return False
 
     def get_display_fields(self) -> Dict[str, str]:
-        if self._latest_data is None:
-            return {"点数": "0", "距离范围": "N/A", "水平距离": "N/A", "高度范围": "N/A"}
-        p = self._latest_data.payload
+        if not self._config:
+            return {"线数": "N/A", "测距范围": "N/A", "点频": "N/A",
+                    "水平视场": "N/A", "垂直视场": "N/A", "旋转频率": "N/A"}
+        channels = self._config.get("number-of-channels", 0)
+        range_m = self._config.get("range", 0)
+        pps = self._config.get("points-per-second", 0)
+        hfov_start = self._config.get("horizontal-fov-start-deg", 0)
+        hfov_end = self._config.get("horizontal-fov-end-deg", 0)
+        vfov_upper = self._config.get("vertical-fov-upper-deg", 0)
+        vfov_lower = self._config.get("vertical-fov-lower-deg", 0)
+        hz = self._config.get("horizontal-rotation-frequency", 0)
+        if pps >= 1000000:
+            pps_str = f"{pps / 1000000:.1f}M/s"
+        elif pps >= 1000:
+            pps_str = f"{pps / 1000:.0f}K/s"
+        else:
+            pps_str = f"{pps}/s"
         return {
-            "点数": str(p.get("point_count", 0)),
-            "距离范围": f"{p.get('dist_min', 0):.1f}~{p.get('dist_max', 0):.1f}m",
-            "水平距离": f"{p.get('dist_xy_min', 0):.1f}~{p.get('dist_xy_max', 0):.1f}m",
-            "高度范围": f"{p.get('z_min', 0):.1f}~{p.get('z_max', 0):.1f}m",
+            "线数": str(channels),
+            "测距范围": f"{range_m}m",
+            "点频": pps_str,
+            "水平视场": f"{hfov_start}°~{hfov_end}°",
+            "垂直视场": f"{vfov_lower}°~{vfov_upper}°",
+            "旋转频率": f"{hz}Hz",
         }

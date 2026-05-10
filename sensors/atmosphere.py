@@ -117,8 +117,8 @@ class AtmosphereCallback(SensorCallback):
                 "diff_pressure": self._latest_data.payload.get("diff_pressure", 0.0) if self._latest_data else 0.0,
             })
 
-            # 发送到UI（节流控制）
-            if self._atmosphere_callback and self._should_update_ui():
+            # 发送到UI（外层on_barometer已做节流控制）
+            if self._atmosphere_callback:
                 self._atmosphere_callback(self._latest_data)
         except Exception:
             pass
@@ -159,22 +159,28 @@ class AtmosphereCallback(SensorCallback):
                 "diff_pressure": diff_pressure,
             })
 
-            # 发送到UI（节流控制）
-            if self._atmosphere_callback and self._should_update_ui():
+            # 发送到UI（外层on_airspeed已做节流控制）
+            if self._atmosphere_callback:
                 self._atmosphere_callback(self._latest_data)
         except Exception:
             pass
 
     def get_display_fields(self) -> Dict[str, str]:
-        """获取UI显示字段：气压高度、指示空速、气压值"""
+        """获取UI显示字段：气压高度、指示空速、气压、QNH、差压"""
         if self._latest_data is None:
             return {
                 "气压高度": "N/A", "指示空速": "N/A",
-                "气压": "N/A",
+                "气压": "N/A", "QNH": "N/A", "差压": "N/A",
             }
         p = self._latest_data.payload
+        pressure_pa = p.get('pressure', 101325.0)
+        pressure_hpa = pressure_pa / 100.0
+        qnh_pa = p.get('qnh', 101325.0)
+        qnh_hpa = qnh_pa / 100.0
         return {
             "气压高度": f"{p.get('baro_altitude', 0):.1f}m",
             "指示空速": f"{p.get('airspeed', 0):.2f}m/s",
-            "气压": f"{p.get('pressure', 101325):.0f}Pa",
+            "气压": f"{pressure_hpa:.2f}hPa",
+            "QNH": f"{qnh_hpa:.2f}hPa",
+            "差压": f"{p.get('diff_pressure', 0):.1f}Pa",
         }

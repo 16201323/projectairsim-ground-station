@@ -11,6 +11,7 @@ SensorManager：管理所有传感器回调的创建、订阅和数据分发
 4. 管理传感器生命周期（创建→订阅→销毁）
 """
 
+import json
 import threading
 from typing import Dict, Any, Optional, Callable, List
 
@@ -76,7 +77,9 @@ class SensorManager:
 
     def __init__(self, client, drone, recorder=None,
                  log_func: Optional[Callable] = None,
-                 frame_callback: Optional[Callable] = None):
+                 frame_callback: Optional[Callable] = None,
+                 sim_config_path: Optional[str] = None,
+                 robot_config: Optional[str] = None):
         """
         初始化传感器管理器
 
@@ -86,12 +89,16 @@ class SensorManager:
             recorder: DataRecorder实例
             log_func: 日志函数
             frame_callback: 相机帧回调函数
+            sim_config_path: 仿真配置文件目录路径（用于读取传感器配置）
+            robot_config: 机器人配置文件名（如"robot_quadrotor_adv.jsonc"）
         """
         self._client = client
         self._drone = drone
         self._recorder = recorder
         self._log_func = log_func or (lambda msg, level="INFO": None)
         self._frame_callback = frame_callback
+        self._sim_config_path = sim_config_path
+        self._robot_config = robot_config
         # 传感器回调字典：{sensor_name: SensorCallback}
         self._sensors: Dict[str, SensorCallback] = {}
         # 双目相机组：{group_name: StereoCameraCallback}
@@ -183,6 +190,9 @@ class SensorManager:
 
         # 打印订阅摘要
         self._log(f"传感器订阅完成: 共{len(self._sensors)}个传感器/传感器组", "INFO")
+
+        # 读取机器人配置文件，提取LiDAR固定配置参数
+        self._load_lidar_config()
 
     def _create_and_subscribe(self, sensor_id: str, topics: Dict[str, str]):
         """
@@ -477,6 +487,63 @@ class SensorManager:
             if isinstance(callback, StereoCameraCallback):
                 return callback.capture_stereo_photo()
         return False
+
+    def _load_lidar_config(self):
+        """
+        从机器人JSONC配置文件中读取LiDAR固定配置参数
+        并设置到对应的LidarCallback中
+        """
+        if not self._sim_config_path or not self._robot_config:
+            return
+        try:
+            import os
+            config_path = os.path.join(self._sim_config_path, self._robot_config)
+            if not os.path.exists(config_path):
+                self._log(f"机器人配置文件不存在: {config_path}", "WARNING")
+                return
+            with open(config_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            lines = content.split("\n")
+            clean_lines = []
+            for line in lines:
+                comment_idx = line.find("//")
+                if comment_idx >= 0:
+                    in_string = False
+                    for ch in line[:comment_idx]:
+                        if ch == '"':
+                            in_string = not in_string
+                    if not in_string:
+                        line = line[:comment_idx]
+                clean_lines.append(line)
+            robot_data = json.loads("\n".join(clean_lines))
+            sensors_list = robot_data.get("sensors", [])
+            for sensor_cfg in sensors_list:
+                if sensor_cfg.get("type") == "lidar":
+                    sensor_id = sensor_cfg.get("id", "lidar1")
+                    lidar_config = {
+                        "number-of-channels": sensor_cfg.get("number-of-channels", 0),
+                        "range": sensor_cfg.get("range", 0),
+                        "points-per-second": sensor_cfg.get("points-per-second", 0),
+                        "horizontal-rotation-frequency": sensor_cfg.get("horizontal-rotation-frequency", 0),
+                        "horizontal-fov-start-deg": sensor_cfg.get("horizontal-fov-start-deg", 0),
+                        "horizontal-fov-end-deg": sensor_cfg.get("horizontal-fov-end-deg", 0),
+                        "vertical-fov-upper-deg": sensor_cfg.get("vertical-fov-upper-deg", 0),
+                        "vertical-fov-lower-deg": sensor_cfg.get("vertical-fov-lower-deg", 0),
+                    }
+                    callback = self._sensors.get(sensor_id)
+                    if callback is not None and hasattr(callback, 'set_config'):
+                        callback.set_config(lidar_config)
+                        self._log(f"LiDAR配置已加载: {sensor_id} ({lidar_config.get('number-of-channels')}线, {lidar_config.get('range')}m)", "INFO")
+                        if self._sensor_data_callback:
+                            from .base import SensorData
+                            config_data = SensorData(
+                                sensor_type=SensorType.LIDAR,
+                                sensor_name=sensor_id,
+                                payload=lidar_config,
+                            )
+                            self._sensor_data_callback(sensor_id, config_data)
+        except Exception as e:
+            self._log(f"读取LiDAR配置失败: {e}", "WARNING")
 
     def _log(self, msg: str, level: str = "INFO"):
         """发送日志消息"""
