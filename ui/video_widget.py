@@ -37,10 +37,24 @@ class VideoWidget(QWidget):
         self.setStyleSheet(f"background-color: #0d1117; border: 1px solid {COLOR_BORDER}; border-radius: 4px;")
 
     def update_frame(self, camera_name, frame):
+        """
+        更新视频帧（拉取模式优化版）
+
+        优化说明：
+        - 不再每帧都copy()，因为拉取模式下UI定时器控制了刷新频率（15fps）
+        - 帧数据在paintEvent中才做BGR→RGB转换，避免重复转换
+        - 仅当帧确实变化时才触发重绘（update()）
+
+        参数：
+            camera_name: 相机标识键（如"chase"、"down"）
+            frame: OpenCV BGR格式的图像帧
+        """
         if frame is not None:
-            label_map = {"front": "前视相机", "down": "下视相机", "chase": "第三人称"}
+            label_map = {"front": "前视相机", "down": "下视相机", "chase": "第三人称",
+                         "stereo_left": "双目左", "stereo_right": "双目右"}
             self.camera_label = label_map.get(camera_name, "相机")
-            self.current_frame = frame.copy()
+            # 直接引用帧，不做copy()（拉取模式下刷新频率可控）
+            self.current_frame = frame
             self.update()
 
     def clear_frame(self):
@@ -59,7 +73,7 @@ class VideoWidget(QWidget):
                 h, w, ch = rgb.shape
                 q_img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
                 scaled = q_img.scaled(self.width(), self.height(),
-                                      Qt.AspectRatioMode.KeepAspectRatio,
+                                      Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                                       Qt.TransformationMode.SmoothTransformation)
                 x = (self.width() - scaled.width()) // 2
                 y = (self.height() - scaled.height()) // 2

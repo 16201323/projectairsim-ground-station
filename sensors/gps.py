@@ -47,18 +47,21 @@ class GPSCallback(SensorCallback):
         GPS数据回调
         当GPS传感器数据更新时由AirSim客户端自动调用
 
+        性能优化：先检查节流，避免不必要的数据解析
+
         参数：
             client: AirSim客户端对象
             gps_data: GPS定位数据字典
         """
         try:
             if gps_data is not None:
-                with self._data_lock:
-                    self._latest_raw = gps_data
+                # 先检查节流，避免不必要的数据解析
+                if not self._should_update_ui():
+                    return
                 # 解析GPS数据
                 self._parse_gps_data(gps_data)
-                # 发送到UI（节流控制，避免频繁刷新）
-                if self._gps_callback and self._latest_data and self._should_update_ui():
+                # 发送到UI
+                if self._gps_callback and self._latest_data:
                     self._gps_callback(self._latest_data)
         except Exception:
             pass

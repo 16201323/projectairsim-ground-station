@@ -779,7 +779,7 @@
   "sensors": [
     {
       // Chase：第三人称追踪相机
-      // 8MP(3840x2160)，H-FOV 120°，三轴自由云台
+      // VGA(640x360)，H-FOV 120°，三轴自由云台
       // 用户可自由切换视角，观察无人机各方位
       "id": "Chase",
       "type": "camera",
@@ -789,8 +789,8 @@
       "capture-settings": [
         {
           "image-type": 0,
-          "width": 3840,
-          "height": 2160,
+          "width": 640,
+          "height": 360,
           "fov-degrees": 120,
           "capture-enabled": true,
           "streaming-enabled": true,
@@ -811,7 +811,7 @@
     },
     {
       // DownCamera：下视深度相机
-      // 8MP(3840x2160)，H-FOV 120°(V-FOV≈68.8°)
+      // VGA(640x360)，H-FOV 120°(V-FOV≈68.8°)
       // 主输出：平面深度图(DepthPlanar)，用于高度测量和避障
       // 可选输出：RGB场景图、语义分割（按需API启用）
       "id": "DownCamera",
@@ -823,8 +823,8 @@
         {
           // image-type 0 = RGB场景（启用，用于UI实时显示）
           "image-type": 0,
-          "width": 3840,
-          "height": 2160,
+          "width": 640,
+          "height": 360,
           "fov-degrees": 120,
           "capture-enabled": true,
           "streaming-enabled": true,
@@ -835,8 +835,8 @@
         {
           // image-type 1 = 平面深度图（主输出，正交投影距离=高度）
           "image-type": 1,
-          "width": 3840,
-          "height": 2160,
+          "width": 640,
+          "height": 360,
           "fov-degrees": 120,
           "capture-enabled": true,
           "streaming-enabled": false,
@@ -846,8 +846,8 @@
         {
           // image-type 3 = 语义分割（默认禁用，按需启用用于着陆区域分类）
           "image-type": 3,
-          "width": 3840,
-          "height": 2160,
+          "width": 640,
+          "height": 360,
           "fov-degrees": 120,
           "capture-enabled": false,
           "streaming-enabled": false,
@@ -886,14 +886,15 @@
       }
     },
     {
-      // lidar1：激光雷达传感器
-      // 32通道360°旋转式LiDAR，平衡性能与点云质量
+      // lidar1：激光雷达传感器（LS120S3 镭神）
       "id": "lidar1",
       "type": "lidar",
       "enabled": true,
       "parent-link": "Frame",
+      // 扫描类型：通用圆柱式LiDAR（模拟LS120S3 128线）
+      "lidar-type": "generic_cylindrical",
       // 通道数：32个垂直通道
-      "number-of-channels": 32,
+      "number-of-channels": 128,
       // 测量范围：300米
       "range": 300,
       // 每秒点数：100000
@@ -901,11 +902,12 @@
       // 水平旋转频率：10Hz
       "horizontal-rotation-frequency": 10,
       // 水平视场：0-360度（全向扫描）
-      "horizontal-fov-start-deg": 0.0,
-      "horizontal-fov-end-deg": 360.0,
-      // 垂直视场：+20~-10度，聚焦前方建筑
-      "vertical-fov-upper-deg": 20.0,
-      "vertical-fov-lower-deg": -10.0,
+      "horizontal-fov-start-deg": -60.0,
+      "horizontal-fov-end-deg": 60.0,
+      // 垂直视场：+12.5°~-12.5°（LS120S3 25°垂直FOV）
+      // 低空悬停时无人机高度约50m，-25°可扫描到水平距离107m处的地面
+      "vertical-fov-upper-deg": 12.5,
+      "vertical-fov-lower-deg": -12.5,
       // 禁用自身碰撞检测
       "disable-self-hits": true,
       // 不绘制调试点
@@ -932,7 +934,7 @@
     },
     {
       // StereoLeft：双目相机-宽视角（左）
-      // 8MP(3840x2160)，H-FOV 120°(V-FOV≈68.8°)
+      // VGA(640x360)，H-FOV 120°(V-FOV≈68.8°)
       // 与StereoRight(窄视角)构成非对称双目系统
       // 基线距离：12cm（左右间距0.06×2）
       "id": "StereoLeft",
@@ -943,8 +945,8 @@
       "capture-settings": [
         {
           "image-type": 0,
-          "width": 3840,
-          "height": 2160,
+          "width": 640,
+          "height": 360,
           "fov-degrees": 120,
           "capture-enabled": true,
           "streaming-enabled": true,
@@ -960,7 +962,7 @@
     },
     {
       // StereoRight：双目相机-窄视角（右）
-      // 8MP(3840x2160)，H-FOV 30°(V-FOV≈17.1°)
+      // VGA(640x360)，H-FOV 30°(V-FOV≈17.1°)
       // 与StereoLeft(宽视角)构成非对称双目系统
       // 窄视角提供远距离高精度测距
       "id": "StereoRight",
@@ -971,8 +973,8 @@
       "capture-settings": [
         {
           "image-type": 0,
-          "width": 3840,
-          "height": 2160,
+          "width": 640,
+          "height": 360,
           "fov-degrees": 30,
           "capture-enabled": true,
           "streaming-enabled": true,

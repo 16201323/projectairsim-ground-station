@@ -48,18 +48,25 @@ class IMUCallback(SensorCallback):
         IMU数据回调
         当IMU传感器数据更新时由AirSim客户端自动调用
 
+        性能优化：
+        - IMU数据频率约100Hz，如果每次都解析数据会占用大量CPU
+        - 优化策略：先检查节流，如果距离上次UI更新不足0.2秒，直接跳过
+        - 这样在节流间隔内，回调仅做一次时间比较就返回，几乎零开销
+        - 原先即使跳过UI更新，仍然会调用_parse_imu_data解析数据
+
         参数：
             client: AirSim客户端对象
             imu_data: IMU运动学数据字典
         """
         try:
             if imu_data is not None:
-                with self._data_lock:
-                    self._latest_raw = imu_data
+                # 先检查节流，避免不必要的数据解析
+                if not self._should_update_ui():
+                    return
                 # 解析IMU数据
                 self._parse_imu_data(imu_data)
-                # 发送到UI（节流控制，避免频繁刷新）
-                if self._imu_callback and self._latest_data and self._should_update_ui():
+                # 发送到UI
+                if self._imu_callback and self._latest_data:
                     self._imu_callback(self._latest_data)
         except Exception:
             pass

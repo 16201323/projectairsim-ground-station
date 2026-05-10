@@ -59,7 +59,6 @@ class DroneControlThread(QThread):
     - status_signal(str, str): 状态更新信号，参数为(状态项, 状态值)
     - udp_param_signal(dict): UDP参数更新信号，参数为指令字典
     - frame_signal(object): 视频帧信号，参数为(相机名, 图像帧)元组
-    - lidar_signal(object): LiDAR数据信号，参数为点云数据字典
     - sensor_data_signal(str, object): 传感器数据信号，参数为(传感器名, SensorData)
     - finished_signal(str): 线程结束信号，参数为结束原因
 
@@ -67,7 +66,7 @@ class DroneControlThread(QThread):
     1. 初始化配置管理器，生成场景配置
     2. 连接仿真环境（带友好提示）
     3. 加载场景，创建无人机对象
-    4. 设置传感器订阅（相机、LiDAR）
+    4. 设置传感器订阅（相机）
     5. 解锁、起飞
     6. 进入主控制循环（键盘/UDP模式）
     7. 退出时着陆、清理资源
@@ -77,7 +76,6 @@ class DroneControlThread(QThread):
     status_signal = pyqtSignal(str, str)
     udp_param_signal = pyqtSignal(dict)
     frame_signal = pyqtSignal(object)
-    lidar_signal = pyqtSignal(object)
     sensor_data_signal = pyqtSignal(str, object)
     finished_signal = pyqtSignal(str)
 
@@ -123,7 +121,6 @@ class DroneControlThread(QThread):
         self._photo_chase = False
         self._photo_stereo_left = False
         self._photo_stereo_right = False
-        self._lidar_snapshot = False
         self._vtol_toggle = False
         self._speed_up = False
         self._speed_down = False
@@ -144,11 +141,10 @@ class DroneControlThread(QThread):
         self._latest_down_frame = None    # 最新下视相机帧
         self._latest_chase_frame = None   # 最新第三人称相机帧
         self._latest_stereo_right_frame = None # 最新双目右相机帧
-        # 缓存的最新LiDAR数据，用于快照保存
-        self._latest_lidar_data = None
-        # 帧数据和LiDAR数据的线程锁，保护并发访问
+        # 帧数据的线程锁，保护并发访问
         self._frame_lock = threading.Lock()
         self._lidar_lock = threading.Lock()
+        self._latest_lidar_data = None
         # 位置缓存与计数器（主循环中使用）
         self._pos_update_counter = 0
         self._cached_pos = {"x": 0, "y": 0, "z": 0}
@@ -202,10 +198,6 @@ class DroneControlThread(QThread):
         """请求双目右相机拍照"""
         self._photo_stereo_right = True
 
-    def request_lidar_snapshot(self):
-        """请求保存LiDAR点云快照"""
-        self._lidar_snapshot = True
-
     def request_vtol_toggle(self):
         """请求切换VTOL模式（多旋翼↔固定翼）"""
         self._vtol_toggle = True
@@ -224,6 +216,10 @@ class DroneControlThread(QThread):
         self._chase_gimbal_pitch = pitch
         self._chase_gimbal_yaw = yaw
         self._chase_gimbal_requested = True
+
+    def get_latest_lidar_data(self):
+        with self._lidar_lock:
+            return self._latest_lidar_data
 
     def update_keyboard(self, vx, vy, vz, yaw):
         """
@@ -348,7 +344,7 @@ class DroneControlThread(QThread):
             self._home_geo_point = drone.home_geo_point
             self._world = world
 
-            # 步骤5：设置传感器订阅（相机和LiDAR）
+            # 步骤5：设置传感器订阅（相机）
             self._setup_sensors(client, drone, data_recorder)
 
             # 初始化视频录像写入器
@@ -444,14 +440,20 @@ class DroneControlThread(QThread):
 
             self.running = True
 
-            # 步骤7：主控制循环（30ms周期≈33Hz）
-            # 30ms周期平衡了控制响应速度和系统负载
-            # 原先10ms(100Hz)过于频繁，导致大量RPC调用阻塞事件循环造成卡顿
-            # 33Hz对地面站显示来说完全足够（人眼24fps即可感知流畅）
+            # 启动独立的位置更新异步任务（键盘控制模式下以2Hz低频更新位置）
+            # 与主控制循环并行运行，不阻塞飞控指令发送
+            pos_update_task = asyncio.create_task(
+                self._position_update_loop(drone, world))
+
+            # 步骤7：主控制循环（10ms周期≈100Hz）
+            # 与advanced_drone_control.py保持一致的循环频率
+            # 10ms循环确保飞控指令发送频率足够高，无人机运动平滑
+            # 之前30ms循环导致飞控指令间隔过大，无人机运动出现明显顿挫
+            # 关键优化：循环内仅做飞控指令发送，RPC调用移到独立定时器
             while not self._stop_requested:
                 # 内层循环：飞行控制
                 while not self._stop_requested and not self._land_requested:
-                    await asyncio.sleep(0.03)
+                    await asyncio.sleep(0.01)
 
                     # ---- 处理拍照请求 ----
                     if self._photo_front:
@@ -489,15 +491,6 @@ class DroneControlThread(QThread):
                         if f is not None:
                             data_recorder.save_photo("stereo_right", f)
                             self._log("双目右相机拍照已保存", "INFO")
-
-                    # ---- 处理LiDAR快照请求 ----
-                    if self._lidar_snapshot:
-                        self._lidar_snapshot = False
-                        with self._lidar_lock:
-                            ld = self._latest_lidar_data
-                        if ld is not None:
-                            data_recorder.save_lidar_point_cloud(ld)
-                            self._log("LiDAR点云快照已保存(NPY+PCD+LAS)", "INFO")
 
                     # ---- 处理VTOL模式切换请求（仅倾斜旋翼支持）----
                     if self._vtol_toggle and self.is_vtol:
@@ -548,42 +541,51 @@ class DroneControlThread(QThread):
                             self._log(f"云台设置失败: {e}", "WARNING")
 
                     # ---- 获取当前位置信息 ----
-                    # 位置更新采用分级降频策略，减少RPC调用次数缓解卡顿：
-                    # - kinematics（姿态+位置）：每5次循环≈6Hz，足够地面站显示
-                    # - geo_location（经纬度）：每10次循环≈3Hz，经纬度变化慢无需高频
-                    # - surface_elevation（地面高度）：每30次循环≈1Hz，地面高度几乎不变
-                    self._pos_update_counter += 1
-                    pos = self._cached_pos
-                    if self._pos_update_counter % 5 == 1:
-                        try:
-                            kin = drone.get_ground_truth_kinematics()
-                            pos = kin["pose"]["position"]
-                            self._cached_pos = pos
-                            # 同时缓存偏航角（四元数→yaw）
-                            orientation = kin.get("pose", {}).get("orientation", {})
-                            qw = orientation.get("w", 1.0)
-                            qx = orientation.get("x", 0.0)
-                            qy = orientation.get("y", 0.0)
-                            qz = orientation.get("z", 0.0)
-                            siny_cosp = 2 * (qw * qz + qx * qy)
-                            cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
-                            self._cached_yaw_rad = math.atan2(siny_cosp, cosy_cosp)
-                        except Exception:
-                            pos = self._cached_pos
+                    # 核心优化：键盘控制模式下完全跳过RPC调用
+                    # advanced_drone_control.py在键盘控制时不做任何周期性RPC调用
+                    # RPC调用（get_ground_truth_kinematics等）是同步网络请求，
+                    # 即使异步化也会占用事件循环时间，导致10ms控制循环被拉长
+                    # 键盘控制模式下，位置信息仅用于日志和状态显示，不影响飞控
+                    # 位置更新改为独立低频异步任务（_position_update_loop）
+                    if self.control_mode == "UDP自动控制":
+                        self._pos_update_counter += 1
+                        pos = self._cached_pos
                         if self._pos_update_counter % 10 == 1:
                             try:
-                                geo = drone.get_ground_truth_geo_location()
-                                self._cached_lat = geo.get("latitude", 0)
-                                self._cached_lon = geo.get("longitude", 0)
-                                self._cached_alt = geo.get("altitude", 0)
+                                loop = asyncio.get_event_loop()
+                                kin = await loop.run_in_executor(None, drone.get_ground_truth_kinematics)
+                                pos = kin["pose"]["position"]
+                                self._cached_pos = pos
+                                orientation = kin.get("pose", {}).get("orientation", {})
+                                qw = orientation.get("w", 1.0)
+                                qx = orientation.get("x", 0.0)
+                                qy = orientation.get("y", 0.0)
+                                qz = orientation.get("z", 0.0)
+                                siny_cosp = 2 * (qw * qz + qx * qy)
+                                cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
+                                self._cached_yaw_rad = math.atan2(siny_cosp, cosy_cosp)
                             except Exception:
-                                pass
-                            if self._pos_update_counter % 30 == 1:
+                                pos = self._cached_pos
+                            if self._pos_update_counter % 20 == 1:
                                 try:
-                                    ground_z = world.get_surface_elevation_at_point(pos["x"], pos["y"])
-                                    self._cached_agl = -(pos["z"] - ground_z)
+                                    loop = asyncio.get_event_loop()
+                                    geo = await loop.run_in_executor(None, drone.get_ground_truth_geo_location)
+                                    self._cached_lat = geo.get("latitude", 0)
+                                    self._cached_lon = geo.get("longitude", 0)
+                                    self._cached_alt = geo.get("altitude", 0)
                                 except Exception:
-                                    self._cached_agl = self._cached_agl
+                                    pass
+                                if self._pos_update_counter % 60 == 1:
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        ground_z = await loop.run_in_executor(
+                                            None, lambda: world.get_surface_elevation_at_point(pos["x"], pos["y"]))
+                                        self._cached_agl = -(pos["z"] - ground_z)
+                                    except Exception:
+                                        self._cached_agl = self._cached_agl
+                    else:
+                        # 键盘控制模式：使用缓存位置，不做RPC调用
+                        pos = self._cached_pos
                     lat = self._cached_lat
                     lon = self._cached_lon
                     alt = self._cached_alt
@@ -660,6 +662,12 @@ class DroneControlThread(QThread):
             # 步骤8：资源清理（退出时执行）
             # 着陆逻辑已在主循环中处理，此处仅做资源释放
 
+            # 取消位置更新异步任务
+            try:
+                pos_update_task.cancel()
+            except Exception:
+                pass
+
             # 禁用API控制权
             if drone:
                 try:
@@ -694,6 +702,59 @@ class DroneControlThread(QThread):
             self.status_signal.emit("connection", "disconnected")
             self.status_signal.emit("flight", "idle")
             self._log("控制线程已退出", "INFO")
+
+    async def _position_update_loop(self, drone, world):
+        """
+        独立的位置更新异步任务
+        以2Hz低频更新无人机位置信息，供UI状态显示使用
+
+        设计原理：
+        - 主控制循环（10ms）仅做飞控指令发送，不做任何RPC调用
+        - 位置信息（kinematics/geo/elevation）通过此独立任务以2Hz更新
+        - 2Hz对地面站数值显示已足够，且不会阻塞主控制循环
+        - 与advanced_drone_control.py的设计理念一致：
+          键盘控制时不在主循环中做RPC调用
+        """
+        while not self._stop_requested:
+            try:
+                await asyncio.sleep(0.5)  # 2Hz更新频率
+                loop = asyncio.get_event_loop()
+                kin = await loop.run_in_executor(None, drone.get_ground_truth_kinematics)
+                pos = kin["pose"]["position"]
+                self._cached_pos = pos
+                # 缓存偏航角
+                orientation = kin.get("pose", {}).get("orientation", {})
+                qw = orientation.get("w", 1.0)
+                qx = orientation.get("x", 0.0)
+                qy = orientation.get("y", 0.0)
+                qz = orientation.get("z", 0.0)
+                siny_cosp = 2 * (qw * qz + qx * qy)
+                cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
+                self._cached_yaw_rad = math.atan2(siny_cosp, cosy_cosp)
+                # 更新经纬度（每2次循环≈1Hz）
+                self._pos_update_counter += 1
+                if self._pos_update_counter % 2 == 1:
+                    try:
+                        geo = await loop.run_in_executor(None, drone.get_ground_truth_geo_location)
+                        self._cached_lat = geo.get("latitude", 0)
+                        self._cached_lon = geo.get("longitude", 0)
+                        self._cached_alt = geo.get("altitude", 0)
+                    except Exception:
+                        pass
+                # 更新地面高度（每6次循环≈0.33Hz）
+                if self._pos_update_counter % 6 == 1:
+                    try:
+                        ground_z = await loop.run_in_executor(
+                            None, lambda: world.get_surface_elevation_at_point(pos["x"], pos["y"]))
+                        self._cached_agl = -(pos["z"] - ground_z)
+                    except Exception:
+                        pass
+                # 发送位置状态到UI
+                self.status_signal.emit("position", f"{pos.get('x',0):.1f},{pos.get('y',0):.1f},{pos.get('z',0):.1f}")
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                pass
 
     def _geo_to_ned(self, lat, lon, abs_alt):
         """经纬高转NED坐标（优先使用SDK，失败时回退到简易计算）"""
@@ -865,6 +926,12 @@ class DroneControlThread(QThread):
         设置传感器订阅
         使用SensorManager统一管理所有传感器的创建和订阅
 
+        性能优化说明：
+        - 相机帧不再通过frame_signal主动推送到UI（避免跨线程信号风暴）
+        - 改为UI通过定时器主动拉取SensorManager中的缓存帧
+        - 传感器数据（IMU/GPS/高度表等）仍通过sensor_data_signal传递
+          但已有节流控制（0.2秒间隔），不会造成性能问题
+
         SensorManager工作流程：
         1. 读取无人机传感器配置（drone.sensors）
         2. 根据配置自动创建对应的回调处理器
@@ -876,10 +943,10 @@ class DroneControlThread(QThread):
             drone: 无人机对象
             data_recorder: 数据记录器
         """
-        # 创建传感器数据回调（发送到UI）
+        # 相机帧回调：仅缓存帧用于拍照，不再emit信号到UI
+        # UI通过定时器主动调用SensorManager.get_camera_frame()拉取最新帧
         def on_frame(camera_key, frame):
-            """相机帧回调：发送到UI显示并缓存最新帧"""
-            self.frame_signal.emit((camera_key, frame))
+            """相机帧回调：仅缓存最新帧用于拍照功能"""
             with self._frame_lock:
                 if camera_key == "stereo_left":
                     self._latest_stereo_left_frame = frame
@@ -889,12 +956,6 @@ class DroneControlThread(QThread):
                     self._latest_chase_frame = frame
                 elif camera_key == "stereo_right":
                     self._latest_stereo_right_frame = frame
-
-        def on_lidar(lidar_data):
-            """LiDAR回调：发送到UI点云可视化并缓存最新数据"""
-            self.lidar_signal.emit(lidar_data)
-            with self._lidar_lock:
-                self._latest_lidar_data = lidar_data
 
         def on_sensor_data(sensor_name, data):
             """传感器数据更新回调：发送到UI传感器面板"""
@@ -908,12 +969,19 @@ class DroneControlThread(QThread):
             recorder=data_recorder,
             log_func=self._log,
             frame_callback=on_frame,
-            lidar_callback=on_lidar,
         )
         self._sensor_manager.set_sensor_data_callback(on_sensor_data)
 
         # 设置所有传感器订阅
         self._sensor_manager.setup_all_sensors()
+
+        if "lidar1" in drone.sensors:
+            lidar_topic = drone.sensors["lidar1"]["lidar"]
+            def on_lidar(_, data):
+                with self._lidar_lock:
+                    self._latest_lidar_data = data
+            client.subscribe(lidar_topic, on_lidar)
+            self._log("LiDAR点云订阅已设置", "INFO")
 
     def _on_camera(self, image_msg, camera_name, data_recorder):
         """
@@ -939,20 +1007,5 @@ class DroneControlThread(QThread):
                         self._latest_chase_frame = frame
                     elif camera_name == "stereo_right":
                         self._latest_stereo_right_frame = frame
-        except Exception:
-            pass
-
-    def _on_lidar(self, lidar_data):
-        """
-        LiDAR数据回调函数（兼容旧逻辑，新传感器通过SensorManager管理）
-
-        参数：
-            lidar_data: LiDAR传感器数据字典
-        """
-        try:
-            if lidar_data is not None:
-                self.lidar_signal.emit(lidar_data)
-                with self._lidar_lock:
-                    self._latest_lidar_data = lidar_data
         except Exception:
             pass

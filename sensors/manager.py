@@ -76,8 +76,7 @@ class SensorManager:
 
     def __init__(self, client, drone, recorder=None,
                  log_func: Optional[Callable] = None,
-                 frame_callback: Optional[Callable] = None,
-                 lidar_callback: Optional[Callable] = None):
+                 frame_callback: Optional[Callable] = None):
         """
         初始化传感器管理器
 
@@ -87,14 +86,12 @@ class SensorManager:
             recorder: DataRecorder实例
             log_func: 日志函数
             frame_callback: 相机帧回调函数
-            lidar_callback: LiDAR数据回调函数
         """
         self._client = client
         self._drone = drone
         self._recorder = recorder
         self._log_func = log_func or (lambda msg, level="INFO": None)
         self._frame_callback = frame_callback
-        self._lidar_callback = lidar_callback
         # 传感器回调字典：{sensor_name: SensorCallback}
         self._sensors: Dict[str, SensorCallback] = {}
         # 双目相机组：{group_name: StereoCameraCallback}
@@ -253,10 +250,10 @@ class SensorManager:
                     return SensorType.IMU
                 if topic_lower == "gps":
                     return SensorType.GPS
-                if topic_lower == "lidar":
-                    return SensorType.LIDAR
                 if "radar" in topic_lower:
                     return SensorType.RADAR
+                if "lidar" in topic_lower:
+                    return SensorType.LIDAR
                 if topic_lower == "barometer":
                     return SensorType.BAROMETER
                 if topic_lower == "airspeed":
@@ -280,10 +277,10 @@ class SensorManager:
             return SensorType.IMU
         if "gps" in id_lower:
             return SensorType.GPS
-        if "lidar" in id_lower:
-            return SensorType.LIDAR
         if "radar" in id_lower:
             return SensorType.RADAR
+        if "lidar" in id_lower:
+            return SensorType.LIDAR
         if "camera" in id_lower:
             return SensorType.CAMERA
         if "barometer" in id_lower or "baro" in id_lower:
@@ -328,9 +325,6 @@ class SensorManager:
         if sensor_type in (SensorType.CAMERA, SensorType.DEPTH_CAMERA):
             callbacks["frame_callback"] = self._frame_callback
             callbacks["sensor_data_callback"] = self._make_sensor_data_cb(sensor_id)
-        elif sensor_type == SensorType.LIDAR:
-            callbacks["lidar_callback"] = self._lidar_callback
-            callbacks["sensor_data_callback"] = self._make_sensor_data_cb(sensor_id)
         elif sensor_type == SensorType.IMU:
             callbacks["imu_callback"] = self._make_sensor_data_cb(sensor_id)
         elif sensor_type == SensorType.GPS:
@@ -340,6 +334,9 @@ class SensorManager:
             callbacks["altimeter_callback"] = self._make_sensor_data_cb(sensor_id)
         elif sensor_type == SensorType.RADAR:
             callbacks["radar_callback"] = self._make_sensor_data_cb(sensor_id)
+        elif sensor_type == SensorType.LIDAR:
+            callbacks["lidar_callback"] = self._make_sensor_data_cb(sensor_id)
+            callbacks["sensor_data_callback"] = self._make_sensor_data_cb(sensor_id)
         return callbacks
 
     def _make_sensor_data_cb(self, sensor_id: str) -> Callable:
@@ -375,9 +372,6 @@ class SensorManager:
                         self._client.subscribe(topic_path, callback)
                     elif "depth" in topic_key or "segmentation" in topic_key:
                         pass
-            elif "lidar" in topic_key:
-                if hasattr(callback, '__call__'):
-                    self._client.subscribe(topic_path, callback)
             elif "imu" in topic_key:
                 self._client.subscribe(topic_path, callback)
             elif "gps" in topic_key:
@@ -389,6 +383,8 @@ class SensorManager:
                     self._client.subscribe(topic_path, callback)
                 elif "tracks" in topic_key and isinstance(callback, RadarCallback):
                     self._client.subscribe(topic_path, callback.on_tracks)
+            elif "lidar" in topic_key:
+                self._client.subscribe(topic_path, callback)
             elif "barometer" in topic_key:
                 self._client.subscribe(topic_path, callback)
             elif "airspeed" in topic_key:
@@ -469,18 +465,6 @@ class SensorManager:
         if isinstance(callback, CameraCallback):
             return callback.get_latest_frame()
         return None
-
-    def save_lidar_snapshot(self) -> bool:
-        """
-        保存LiDAR点云快照
-
-        返回：
-            True表示保存成功
-        """
-        for name, callback in self._sensors.items():
-            if isinstance(callback, LidarCallback):
-                return callback.save_snapshot()
-        return False
 
     def capture_stereo_photo(self) -> bool:
         """

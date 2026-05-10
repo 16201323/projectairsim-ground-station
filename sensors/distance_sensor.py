@@ -45,17 +45,7 @@ class DistanceSensorCallback(SensorCallback):
         """
         距离传感器数据回调
 
-        ProjectAirSim的distance-sensor消息格式（C++端MSGPACK_DEFINE_MAP）：
-        - time_stamp: 时间戳
-        - current_distance: 当前测量距离（厘米！需要转换为米）
-        - pose: 传感器位姿
-
-        重要：单位转换问题！
-        UnrealDistanceSensor.cpp中，Simulate()函数直接将FHitResult.Distance
-        赋值给Distance变量，而FHitResult.Distance的单位是厘米（UE标准单位）。
-        但该值在传入DistanceSensorMessage时没有经过ToMeters()转换，
-        导致Python端收到的current_distance单位是厘米而非米。
-        这是ProjectAirSim C++端的一个bug，我们在此做补偿转换。
+        性能优化：先检查节流，避免不必要的数据解析
 
         参数：
             client: AirSim客户端对象
@@ -63,19 +53,17 @@ class DistanceSensorCallback(SensorCallback):
         """
         try:
             if distance_data is not None:
-                with self._data_lock:
-                    self._latest_raw = distance_data
-                # 解析距离数据（先解析，再发送SensorData到UI）
-                # 字段名为current_distance（ProjectAirSim C++端定义）
-                # 注意：该值单位为厘米（UE端bug），需要除以100转换为米
+                # 先检查节流，避免不必要的数据解析
+                if not self._should_update_ui():
+                    return
+                # 解析距离数据
                 distance_cm = distance_data.get("current_distance", 0.0)
-                # 将厘米转换为米（补偿C++端缺失的ToMeters()转换）
                 distance_m = distance_cm / 100.0
                 self._update_data({
                     "distance": distance_m,
                 })
-                # 发送到UI（节流控制，避免频繁刷新）
-                if self._distance_callback and self._latest_data and self._should_update_ui():
+                # 发送到UI
+                if self._distance_callback and self._latest_data:
                     self._distance_callback(self._latest_data)
         except Exception:
             pass

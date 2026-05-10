@@ -2,7 +2,7 @@
 Project AirSim 地面站控制界面
 基于PyQt6框架，深色霓虹科幻风格
 提供飞机类型选择、控制模式切换、启动/着陆/退出操作、
-实时日志显示、UDP参数监控、相机视频流显示、LiDAR点云可视化等功能。
+实时日志显示、UDP参数监控、相机视频流显示等功能。
 
 功能概述：
 1. 深色霓虹科幻风格UI界面
@@ -12,15 +12,15 @@ Project AirSim 地面站控制界面
 5. 实时流动日志显示（带颜色区分）
 6. UDP模式下完整参数实时显示
 7. 前视/下视相机视频流切换显示
-8. LiDAR点云2D/3D可视化
-9. 传感器数据面板（IMU/GPS/高度表/大气机/雷达等）
-10. 退出后可重新启动
-11. UDP超时自动悬停保护
+8. 传感器数据面板（IMU/GPS/高度表/大气机/雷达等）
+9. 退出后可重新启动
+10. UDP超时自动悬停保护
 """
 
 import ctypes
 import os
 import threading
+import time
 from datetime import datetime
 
 from pynput import keyboard as pynput_keyboard
@@ -51,13 +51,14 @@ from core.constants import (
     COLOR_NEON_CYAN, COLOR_NEON_PURPLE, COLOR_NEON_GREEN,
     COLOR_NEON_YELLOW, COLOR_NEON_RED, COLOR_NEON_ORANGE,
     COLOR_TEXT_MAIN, COLOR_TEXT_SECOND, COLOR_TEXT_DIM,
-    WINDOW_WIDTH, WINDOW_HEIGHT, LEFT_PANEL_WIDTH, BOTTOM_PANEL_HEIGHT,
+    WINDOW_WIDTH, WINDOW_HEIGHT, LEFT_PANEL_WIDTH,
+    RIGHT_PANEL_WIDTH, LIDAR_AREA_HEIGHT,
 )
 from core.control_thread import DroneControlThread
 from ui.widgets import NeonLabel, StatusIndicator
-from ui.lidar_widgets import Lidar3DWidget
 from ui.video_widget import VideoWidget
 from ui.sensor_panel import SensorPanel
+from ui.lidar_widgets import Lidar3DWidget
 from sensors import SensorData
 
 
@@ -238,9 +239,9 @@ class GroundStationWindow(QMainWindow):
     │  飞机类型  │  ┌──────────────────────────────────────────────────────────┐  │
     │  控制模式  │  │                    相机视频                              │  │
     │  飞行速度  │  └──────────────────────────────────────────────────────────┘  │
-    │  UDP参数   ├──────────────────────────┬─────────────────────────────────────┤
-    │  传感器    │      运行日志             │       LiDAR 3D [快照]              │
-    └────────────┴──────────────────────────┴─────────────────────────────────────┘
+    │  UDP参数   ├──────────────────────────────────────────────────────────────────┤
+    │  传感器    │                         运行日志                                 │
+    └────────────┴──────────────────────────────────────────────────────────────────┘
     
     交互逻辑：
     1. 用户选择飞机类型和控制模式
@@ -259,6 +260,10 @@ class GroundStationWindow(QMainWindow):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.control_thread = None
         self.keys_pressed = set()
+        self._modifier_keys_pressed = set()
+        # Linux窗口标题缓存（避免频繁调用xdotool）
+        self._last_window_check_time = 0.0
+        self._cached_window_title = ""
         self._init_ui()
         self._apply_stylesheet()
 
@@ -275,23 +280,42 @@ class GroundStationWindow(QMainWindow):
 
         self.keyboard_timer = QTimer()
         self.keyboard_timer.timeout.connect(self._process_keyboard)
-        self.keyboard_timer.setInterval(50)
+        # 键盘轮询间隔10ms，与控制循环频率匹配
+        # 控制循环10ms + 键盘定时器10ms = 最小延迟
+        self.keyboard_timer.setInterval(10)
+
+        # 相机帧拉取定时器：替代frame_signal的推送模式
+        # 原方案：每帧通过pyqtSignal跨线程传递2.7MB图像，4相机×20fps=80次/秒
+        # 新方案：UI以15fps主动拉取缓存帧，零跨线程信号开销
+        self._frame_pull_timer = QTimer()
+        self._frame_pull_timer.timeout.connect(self._pull_camera_frames)
+        # 15fps≈66ms间隔，人眼足够流畅，同时大幅减少UI重绘次数
+        self._frame_pull_timer.setInterval(66)
 
     def _init_ui(self):
         """
-        初始化UI布局
+        初始化UI布局（三栏式）
         布局结构：
-        ┌────────────┬────────────────────────────────────────────────────────────────┐
-        │  ◆ LOGO  [启动][着陆][退出]  |  [连接][飞行][位置]  |  时钟                │
-        ├────────────┼────────────────────────────────────────────────────────────────┤
-        │            │                    视频显示区域                                │
-        │  左侧面板  │  [前视/下视切换] [拍照] [VTOL切换]                              │
-        │  飞机类型  │  ┌──────────────────────────────────────────────────────────┐  │
-        │  控制模式  │  │                    相机视频                              │  │
-        │  飞行速度  │  └──────────────────────────────────────────────────────────┘  │
-        │  UDP参数   ├──────────────────────────┬─────────────────────────────────────┤
-        │  传感器    │      运行日志             │       LiDAR 3D [快照]              │
-        └────────────┴──────────────────────────┴─────────────────────────────────────┘
+        ┌──────────┬───────────────────────────────────────┬───────────────────┐
+        │ ◆ AIRSIM GROUND STATION [▶启动][⬇着陆][✕退出] [连接][飞行] 时钟    │
+        ├──────────┼───────────────────────────────────────┼───────────────────┤
+        │          │                                       │                   │
+        │  控制面板 │              视频显示区域               │   传感器仪表盘     │
+        │  飞机类型 │  ┌───────────────────────────────┐   │  ┌──────┬──────┐  │
+        │  控制模式 │  │                               │   │  │IMU   │GPS   │  │
+        │  飞行速度 │  │       相机视频                 │   │  ├──────┼──────┤  │
+        │  UDP参数  │  │                               │   │  │无线电│大气机│  │
+        │          │  └───────────────────────────────┘   │  ├──────┼──────┤  │
+        │          │  [第三人称▾] [📷拍照]                │  │激光  │超声波│  │
+        │          ├──────────────────────────────────────┤  ├──────┼──────┤  │
+        │          │        ◆ LiDAR 点云区域              │  │雷达  │LiDAR │  │
+        │          │  ┌───────────────────────────────┐   │  └──────┴──────┘  │
+        ├──────────┤  │         (待实现)               │   │         ◀        │
+        │          │  └───────────────────────────────┘   │      收起按钮     │
+        │ ◆ 运行日志│                                       │                   │
+        │ [INFO].. │                                       │                   │
+        └──────────┴───────────────────────────────────────┴───────────────────┘
+          200px                  900px                          300px
         """
         central = QWidget()
         self.setCentralWidget(central)
@@ -301,20 +325,25 @@ class GroundStationWindow(QMainWindow):
 
         main_layout.addWidget(self._create_title_bar())
 
-        # 右侧区域：上方视频 + 下方(日志 | LiDAR 3D)
-        right_split = QSplitter(Qt.Orientation.Vertical)
-        right_split.addWidget(self._create_video_panel())
-        right_bottom = self._create_bottom_panel()
-        right_split.addWidget(right_bottom)
-        right_split.setSizes([WINDOW_HEIGHT - BOTTOM_PANEL_HEIGHT - 50, BOTTOM_PANEL_HEIGHT])
+        left_panel = self._create_left_panel()
 
-        # 主水平分割器：左侧面板(贯穿全高) | 右侧区域
-        main_split = QSplitter(Qt.Orientation.Horizontal)
-        main_split.addWidget(self._create_left_panel())
-        main_split.addWidget(right_split)
-        main_split.setSizes([LEFT_PANEL_WIDTH, WINDOW_WIDTH - LEFT_PANEL_WIDTH])
+        middle_panel = self._create_middle_panel()
 
-        main_layout.addWidget(main_split, 1)
+        self.right_panel = self._create_right_sensor_panel()
+
+        self.main_split = QSplitter(Qt.Orientation.Horizontal)
+        self.main_split.addWidget(left_panel)
+        self.main_split.addWidget(middle_panel)
+        self.main_split.addWidget(self.right_panel)
+        self.main_split.setSizes([
+            LEFT_PANEL_WIDTH,
+            WINDOW_WIDTH - LEFT_PANEL_WIDTH - RIGHT_PANEL_WIDTH,
+            RIGHT_PANEL_WIDTH
+        ])
+        self.main_split.setHandleWidth(2)
+        self.main_split.setChildrenCollapsible(False)
+
+        main_layout.addWidget(self.main_split, 1)
 
     def _create_title_bar(self):
         """
@@ -382,7 +411,29 @@ class GroundStationWindow(QMainWindow):
         status_layout.addWidget(self.ind_flight)
         layout.addWidget(status_frame)
 
-        layout.addSpacing(1)
+        layout.addSpacing(8)
+
+        self.btn_toggle_sensor = QPushButton("◀")
+        self.btn_toggle_sensor.setFixedSize(42, 22)
+        self.btn_toggle_sensor.setToolTip("显示/隐藏传感器面板")
+        self.btn_toggle_sensor.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_BG_PANEL_LIGHT};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 3px;
+                color: {COLOR_TEXT_SECOND};
+                font-size: 10px;
+                padding: 2px 6px;
+            }}
+            QPushButton:hover {{
+                border-color: {COLOR_NEON_CYAN};
+                color: {COLOR_NEON_CYAN};
+            }}
+        """)
+        self.btn_toggle_sensor.clicked.connect(self._on_toggle_sensor_panel)
+        layout.addWidget(self.btn_toggle_sensor)
+
+        layout.addSpacing(4)
 
         # 右侧：实时时钟
         self.time_label = QLabel()
@@ -400,26 +451,34 @@ class GroundStationWindow(QMainWindow):
 
     def _create_left_panel(self):
         """
-        创建左侧控制面板（固定宽度240px）
-        包含：飞机类型、控制模式、飞行速度、UDP参数
-        操作按钮已移至顶部标题栏
+        创建左侧面板（200px）：上=控制面板 + 下=运行日志
         """
         panel = QWidget()
         panel.setFixedWidth(LEFT_PANEL_WIDTH)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
+
+        left_split = QSplitter(Qt.Orientation.Vertical)
+        left_split.setHandleWidth(2)
+        left_split.setChildrenCollapsible(False)
+
+        left_split.addWidget(self._create_control_panel())
+        left_split.addWidget(self._create_log_panel())
+        left_split.setSizes([450, 350])
+
+        layout.addWidget(left_split)
+        return panel
+
+    def _create_control_panel(self):
+        """
+        创建控制面板：飞机类型、控制模式、飞行速度、UDP参数
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(2)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(2, 2, 2, 2)
-        scroll_layout.setSpacing(2)
-
-        # 飞机类型
         drone_grp = QGroupBox("◆ 飞机类型")
         dl = QVBoxLayout(drone_grp)
         dl.setSpacing(1)
@@ -436,9 +495,8 @@ class GroundStationWindow(QMainWindow):
             dl.addWidget(rb)
             if idx == 0:
                 rb.setChecked(True)
-        scroll_layout.addWidget(drone_grp)
+        layout.addWidget(drone_grp)
 
-        # 控制模式
         mode_grp = QGroupBox("◆ 控制模式")
         ml = QVBoxLayout(mode_grp)
         ml.setSpacing(1)
@@ -453,9 +511,8 @@ class GroundStationWindow(QMainWindow):
         ml.addWidget(self.radio_udp)
         self.radio_kb.toggled.connect(self._on_mode_changed)
         self.radio_udp.toggled.connect(self._on_mode_changed)
-        scroll_layout.addWidget(mode_grp)
+        layout.addWidget(mode_grp)
 
-        # 飞行速度
         spd_grp = QGroupBox("◆ 飞行速度")
         spl = QVBoxLayout(spd_grp)
         spl.setSpacing(2)
@@ -468,9 +525,8 @@ class GroundStationWindow(QMainWindow):
         spl.addWidget(self.speed_bar)
         self.lbl_speed = NeonLabel(f"当前: {DEFAULT_SPEED:.1f} m/s", COLOR_NEON_CYAN, 9)
         spl.addWidget(self.lbl_speed)
-        scroll_layout.addWidget(spd_grp)
+        layout.addWidget(spd_grp)
 
-        # UDP控制参数（仅在UDP模式下可见）
         self.udp_grp = QGroupBox("◆ UDP 飞行参数")
         ul = QGridLayout(self.udp_grp)
         ul.setSpacing(4)
@@ -512,31 +568,84 @@ class GroundStationWindow(QMainWindow):
                     ul.addWidget(unit_lbl, row, col + 2)
                 self.udp_units[key] = unit_lbl
         self.udp_grp.setVisible(False)
-        scroll_layout.addWidget(self.udp_grp)
+        layout.addWidget(self.udp_grp)
 
-        # 传感器数据面板（显示IMU/GPS/高度表/大气机/雷达等传感器数据）
-        self.sensor_panel = SensorPanel()
-        scroll_layout.addWidget(self.sensor_panel, 1)
+        layout.addStretch()
+        return panel
 
-        scroll.setWidget(scroll_content)
-        layout.addWidget(scroll)
+    def _create_log_panel(self):
+        """
+        创建运行日志面板
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+
+        log_grp = QGroupBox("◆ 运行日志")
+        ll = QVBoxLayout(log_grp)
+        ll.setContentsMargins(2, 11, 2, 2)
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.log_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._log_count = 0
+        self._max_log_count = 1000
+        ll.addWidget(self.log_text)
+        layout.addWidget(log_grp, 1)
+
+        return panel
+
+    def _create_middle_panel(self):
+        """
+        创建中间面板：上=视频显示 + 下=LiDAR占位区域
+        """
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        mid_split = QSplitter(Qt.Orientation.Vertical)
+        mid_split.setHandleWidth(2)
+        mid_split.setChildrenCollapsible(False)
+
+        mid_split.addWidget(self._create_video_panel())
+        mid_split.addWidget(self._create_lidar_panel())
+        mid_split.setSizes([WINDOW_HEIGHT - LIDAR_AREA_HEIGHT - 120, LIDAR_AREA_HEIGHT])
+
+        layout.addWidget(mid_split)
+        return panel
+
+    def _create_lidar_panel(self):
+        panel = QWidget()
+        panel.setMinimumHeight(200)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+
+        grp = QGroupBox("◆ LiDAR 3D 点云")
+        gl = QVBoxLayout(grp)
+        gl.setContentsMargins(2, 11, 2, 2)
+
+        self.lidar_widget = Lidar3DWidget()
+        gl.addWidget(self.lidar_widget)
+
+        layout.addWidget(grp, 1)
         return panel
 
     def _create_video_panel(self):
         """
-        创建视频显示面板（中间右侧主区域）
+        创建视频显示面板
         包含：相机切换 + 拍照按钮 + VTOL切换按钮 + 视频显示
         按钮浮于视频右上角，不影响视频显示
         """
         container = QWidget()
         container.setStyleSheet(f"background-color: {COLOR_BG_MAIN};")
 
-        # 使用绝对定位实现按钮浮于视频右上角
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 视频显示（使用QStackedWidget切换第三人称/双目左/双目右/下视深度）
         self.video_stack = QStackedWidget()
         self.video_widget_chase = VideoWidget()
         self.video_widget_stereo_left = VideoWidget()
@@ -548,8 +657,6 @@ class GroundStationWindow(QMainWindow):
         self.video_stack.addWidget(self.video_widget_down)
         layout.addWidget(self.video_stack, 1)
 
-        # 悬浮按钮（绝对定位在右上角）
-        # 相机切换按钮
         self.cam_switch_btn = QPushButton("第三人称")
         self.cam_switch_btn.setObjectName("btnCamSwitch")
         self.cam_switch_btn.setFixedSize(80, 24)
@@ -557,7 +664,6 @@ class GroundStationWindow(QMainWindow):
         self.cam_switch_btn.setParent(container)
         self.cam_switch_btn.raise_()
 
-        # 拍照按钮
         self.btn_photo = QPushButton("📷 拍照")
         self.btn_photo.setEnabled(False)
         self.btn_photo.setFixedSize(80, 24)
@@ -565,7 +671,6 @@ class GroundStationWindow(QMainWindow):
         self.btn_photo.setParent(container)
         self.btn_photo.raise_()
 
-        # VTOL切换按钮（仅倾斜旋翼时可见）
         self.btn_vtol_video = QPushButton("🔄 VTOL切换")
         self.btn_vtol_video.setEnabled(False)
         self.btn_vtol_video.setVisible(False)
@@ -577,49 +682,40 @@ class GroundStationWindow(QMainWindow):
         self._current_camera_idx = 0
         self._camera_names = ["第三人称", "双目左", "双目右", "下视深度"]
         self._camera_keys = ["chase", "stereo_left", "stereo_right", "down"]
-        self._camera_btns = [self.btn_photo, self.cam_switch_btn]  # 快照和切换按钮
+        self._camera_btns = [self.btn_photo, self.cam_switch_btn]
 
-        # 监听容器大小变化，重新定位按钮
         container.resizeEvent = self._on_video_panel_resize
 
         return container
 
     def _on_video_panel_resize(self, event):
-        """视频面板大小变化时，重新定位右上角悬浮按钮"""
         w = event.size().width()
         x_offset = 8
         y_offset = 8
         gap = 6
-
         if self.btn_vtol_video.isVisible():
             self.btn_vtol_video.move(w - x_offset - self.btn_vtol_video.width(), y_offset)
             x_offset += self.btn_vtol_video.width() + gap
-
         self.btn_photo.move(w - x_offset - self.btn_photo.width(), y_offset)
         x_offset += self.btn_photo.width() + gap
-
         self.cam_switch_btn.move(w - x_offset - self.cam_switch_btn.width(), y_offset)
 
     def _on_camera_switch(self):
-        """切换第三人称→双目左→双目右→下视深度相机显示"""
         self._current_camera_idx = (self._current_camera_idx + 1) % len(self._camera_names)
         self.video_stack.setCurrentIndex(self._current_camera_idx)
         self.cam_switch_btn.setText(self._camera_names[self._current_camera_idx])
 
     def _switch_to_camera(self, idx):
-        """快捷键切换到指定索引的相机视图"""
         if 0 <= idx < len(self._camera_names):
             self._current_camera_idx = idx
             self.video_stack.setCurrentIndex(idx)
             self.cam_switch_btn.setText(self._camera_names[idx])
 
     def _set_chase_gimbal(self, roll, pitch, yaw):
-        """设置追踪相机云台角度（度）"""
         if self.control_thread and self.control_thread.isRunning():
             self.control_thread.request_set_chase_gimbal(roll, pitch, yaw)
 
     def _on_video_photo(self):
-        """视频区域拍照按钮：根据当前显示的相机拍照"""
         camera_key = self._camera_keys[self._current_camera_idx]
         if camera_key == "stereo_left":
             self._action("photo_stereo_left")
@@ -630,55 +726,67 @@ class GroundStationWindow(QMainWindow):
         elif camera_key == "stereo_right":
             self._action("photo_stereo_right")
 
-    def _create_bottom_panel(self):
+    def _create_right_sensor_panel(self):
         """
-        创建右侧下方面板
-        两列布局：运行日志 | LiDAR 3D（平分宽度）
-        LiDAR快照按钮浮于右上角
+        创建右侧传感器仪表盘（300px，可隐藏）
+        包含：传感器标题 + 折叠按钮 + 紧凑2列传感器卡片网格
         """
         panel = QWidget()
-        layout = QHBoxLayout(panel)
+        panel.setObjectName("rightSensorPanel")
+        layout = QVBoxLayout(panel)
         layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
 
-        # 左列：运行日志
-        log_grp = QGroupBox("◆ 运行日志")
-        ll = QVBoxLayout(log_grp)
-        ll.setContentsMargins(2, 11, 2, 2)
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self._log_count = 0
-        self._max_log_count = 1000
-        ll.addWidget(self.log_text)
-        layout.addWidget(log_grp, 1)
+        title = QLabel("◆ 传感器数据")
+        title.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {COLOR_NEON_CYAN}; padding: 2px;")
+        layout.addWidget(title)
 
-        # 右列：LiDAR 3D（快照按钮浮于右上角）
-        lid3d_grp = QGroupBox("◆ LiDAR 3D")
-        l3l = QVBoxLayout(lid3d_grp)
-        l3l.setContentsMargins(2, 11, 2, 2)
-        self.lidar3d_widget = Lidar3DWidget()
-        l3l.addWidget(self.lidar3d_widget, 1)
-        self.btn_lidar3d_snap = QPushButton("3D快照")
-        self.btn_lidar3d_snap.setEnabled(False)
-        self.btn_lidar3d_snap.clicked.connect(lambda: self._action("lidar"))
-        self.btn_lidar3d_snap.setFixedSize(80, 18)
-        self.btn_lidar3d_snap.setParent(lid3d_grp)
-        self.btn_lidar3d_snap.raise_()
-        self._lid3d_grp = lid3d_grp
-        lid3d_grp.resizeEvent = self._on_lid3d_grp_resize
-        layout.addWidget(lid3d_grp, 1)
+        self.sensor_panel = SensorPanel()
+        layout.addWidget(self.sensor_panel, 1)
 
+        panel.setFixedWidth(RIGHT_PANEL_WIDTH)
         return panel
 
-    def _on_lid3d_grp_resize(self, event):
-        """LiDAR 3D分组框大小变化时，重新定位右上角快照按钮"""
-        w = event.size().width()
-        self.btn_lidar3d_snap.move(w - self.btn_lidar3d_snap.width() - 46, 40)
+    def _on_toggle_sensor_panel(self):
+        """
+        切换右侧传感器面板的显示/隐藏
+        """
+        if self.right_panel.isVisible():
+            self.right_panel.setVisible(False)
+            self.btn_toggle_sensor.setText("▶")
+            sizes = self.main_split.sizes()
+            if len(sizes) >= 2:
+                sizes[-1] = 0
+                self.main_split.setSizes(sizes)
+        else:
+            self.right_panel.setVisible(True)
+            self.btn_toggle_sensor.setText("◀")
+            sizes = self.main_split.sizes()
+            if len(sizes) >= 3:
+                total = sum(sizes)
+                sizes[0] = LEFT_PANEL_WIDTH
+                sizes[2] = RIGHT_PANEL_WIDTH
+                sizes[1] = total - LEFT_PANEL_WIDTH - RIGHT_PANEL_WIDTH
+                self.main_split.setSizes(sizes)
 
     def focusOutEvent(self, event):
         """窗口失去焦点时清除所有按键状态，防止按键粘滞"""
         self.keys_pressed.clear()
+        self._modifier_keys_pressed.clear()
         super().focusOutEvent(event)
+
+    def changeEvent(self, event):
+        """
+        窗口状态变化事件处理
+        捕获WindowDeactivate事件（窗口变为非活动状态），清除按键状态
+        比focusOutEvent更可靠：focusOutEvent仅在子控件焦点变化时触发，
+        而changeEvent在窗口整体失活时触发（如Win+D、Alt+Tab等）
+        """
+        if event.type() == event.Type.WindowDeactivate:
+            self.keys_pressed.clear()
+            self._modifier_keys_pressed.clear()
+        super().changeEvent(event)
 
     def _apply_stylesheet(self):
         """应用全局QSS样式表（深色霓虹科幻风格）"""
@@ -718,8 +826,9 @@ class GroundStationWindow(QMainWindow):
         self.control_thread.log_signal.connect(self._on_log)
         self.control_thread.status_signal.connect(self._on_status)
         self.control_thread.udp_param_signal.connect(self._on_udp)
-        self.control_thread.frame_signal.connect(self._on_frame)
-        self.control_thread.lidar_signal.connect(self._on_lidar)
+        # frame_signal已不再使用：相机帧改为拉取模式（_pull_camera_frames定时器）
+        # 保留信号定义但不连接，避免控制线程emit时报错
+        # self.control_thread.frame_signal.connect(self._on_frame)
         self.control_thread.sensor_data_signal.connect(self._on_sensor_data)
         self.control_thread.finished_signal.connect(self._on_finished)
 
@@ -727,7 +836,6 @@ class GroundStationWindow(QMainWindow):
         self.btn_land.setEnabled(True)
         self.btn_exit.setEnabled(True)
         self.btn_photo.setEnabled(True)
-        self.btn_lidar3d_snap.setEnabled(True)
         if is_vtol:
             self.btn_vtol_video.setEnabled(True)
             self.btn_vtol_video.setVisible(True)
@@ -738,6 +846,8 @@ class GroundStationWindow(QMainWindow):
             b.setEnabled(False)
 
         self.keyboard_timer.start()
+        # 启动相机帧拉取定时器（替代frame_signal推送模式）
+        self._frame_pull_timer.start()
         self.control_thread.start()
         self._append_log("地面站已启动", "INFO")
 
@@ -769,7 +879,6 @@ class GroundStationWindow(QMainWindow):
                 "photo_down"        - 下视拍照
                 "photo_chase"       - 第三人称拍照
                 "photo_stereo_right"- 双目右相机拍照
-                "lidar"             - LiDAR快照
                 "vtol"              - VTOL模式切换
         """
         if not self.control_thread or not self.control_thread.isRunning():
@@ -782,8 +891,6 @@ class GroundStationWindow(QMainWindow):
             self.control_thread.request_photo_chase()
         elif act == "photo_stereo_right":
             self.control_thread.request_photo_stereo_right()
-        elif act == "lidar":
-            self.control_thread.request_lidar_snapshot()
         elif act == "vtol":
             self.control_thread.request_vtol_toggle()
 
@@ -806,6 +913,14 @@ class GroundStationWindow(QMainWindow):
         PynputKey.down: Qt.Key.Key_Down,
         PynputKey.left: Qt.Key.Key_Left,
         PynputKey.right: Qt.Key.Key_Right,
+    }
+
+    # pynput修饰键集合：这些键按住时，后续普通按键不触发无人机控制
+    _PYNPUT_MODIFIER_KEYS = {
+        PynputKey.cmd_l, PynputKey.cmd_r,
+        PynputKey.ctrl_l, PynputKey.ctrl_r,
+        PynputKey.alt_l, PynputKey.alt_r,
+        PynputKey.alt_gr,
     }
 
     # pynput字母键和符号键到Qt.Key的映射（加减号用KeyCode表示）
@@ -838,9 +953,14 @@ class GroundStationWindow(QMainWindow):
         """
         pynput系统级键盘按下回调
         仅在手动模式下，且当前前台窗口为本程序或UE程序时响应键盘事件
-        其他窗口下的键盘输入将被忽略，避免干扰其他应用
+        修饰键（Win/Ctrl/Alt）按住时，忽略普通按键，防止Win+D等组合键误触发控制
         """
+        if isinstance(key, PynputKey) and key in self._PYNPUT_MODIFIER_KEYS:
+            self._modifier_keys_pressed.add(key)
+            return
         if not self._is_target_window_active():
+            return
+        if self._modifier_keys_pressed:
             return
         qt_key = self._convert_pynput_key(key)
         if qt_key is not None:
@@ -850,10 +970,11 @@ class GroundStationWindow(QMainWindow):
     def _on_pynput_key_release(self, key):
         """
         pynput系统级键盘释放回调
-        仅在手动模式下，且当前前台窗口为本程序或UE程序时响应
+        始终处理释放事件，不受窗口焦点限制
+        同时清除修饰键状态，确保组合键释放后恢复正常控制
         """
-        if not self._is_target_window_active():
-            return
+        if isinstance(key, PynputKey) and key in self._PYNPUT_MODIFIER_KEYS:
+            self._modifier_keys_pressed.discard(key)
         qt_key = self._convert_pynput_key(key)
         if qt_key is not None:
             self.keys_pressed.discard(qt_key)
@@ -866,6 +987,12 @@ class GroundStationWindow(QMainWindow):
         判断逻辑：
         1. 非手动模式（UDP模式）直接返回False，不响应pynput键盘
         2. 手动模式下，检查前台窗口标题是否包含本程序或UE相关关键字
+        3. Linux平台使用xdotool/subprocess获取窗口标题（带缓存，避免频繁调用）
+        4. Windows平台使用ctypes.windll获取窗口标题
+
+        性能优化：
+        - 窗口标题查询结果缓存0.5秒，避免每次按键都调用subprocess
+        - subprocess调用开销约5-10ms，如果每次按键都调用会显著增加延迟
 
         返回：
             bool: True表示应响应键盘事件，False表示忽略
@@ -873,20 +1000,37 @@ class GroundStationWindow(QMainWindow):
         if self.control_thread and self.control_thread.control_mode != "键盘控制":
             return False
         try:
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            if hwnd == 0:
-                return False
-            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-            if length == 0:
-                return False
-            buf = ctypes.create_unicode_buffer(length + 1)
-            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-            title = buf.value.lower()
+            import sys
+            if sys.platform == "linux":
+                # Linux平台：使用xdotool获取活动窗口标题（带0.5秒缓存）
+                now = time.monotonic()
+                if now - self._last_window_check_time > 0.5:
+                    import subprocess
+                    result = subprocess.run(
+                        ["xdotool", "getactivewindow", "getwindowname"],
+                        capture_output=True, text=True, timeout=0.5
+                    )
+                    self._cached_window_title = result.stdout.strip().lower()
+                    self._last_window_check_time = now
+                title = self._cached_window_title
+            else:
+                # Windows平台：使用ctypes获取前台窗口标题
+                hwnd = ctypes.windll.user32.GetForegroundWindow()
+                if hwnd == 0:
+                    return False
+                length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+                if length == 0:
+                    return False
+                buf = ctypes.create_unicode_buffer(length + 1)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.lower()
             target_keywords = ["地面站", "airsim", "dynamiccity", "eolicpark",
-                               "unreal", "ue4", "ue5", "projectairsim", "sim"]
+                               "unreal", "ue4", "ue5", "projectairsim", "sim",
+                               "ground station"]
             return any(kw in title for kw in target_keywords)
         except Exception:
-            return False
+            # 获取窗口标题失败时，默认允许响应（避免在Linux上pynput完全失效）
+            return True
 
     def _handle_single_key_action(self, qt_key):
         """
@@ -898,7 +1042,6 @@ class GroundStationWindow(QMainWindow):
         - ↑: 起飞
         - F: 双目左相机拍照
         - G: 下视相机拍照
-        - L: LiDAR快照
         - T: 着陆
         - V: VTOL切换
         - Q: 退出
@@ -915,8 +1058,6 @@ class GroundStationWindow(QMainWindow):
             self._action("photo_stereo_left")
         elif qt_key == Qt.Key.Key_G:
             self._action("photo_down")
-        elif qt_key == Qt.Key.Key_L:
-            self._action("lidar")
         elif qt_key == Qt.Key.Key_T:
             self._on_land()
         elif qt_key == Qt.Key.Key_V:
@@ -947,12 +1088,17 @@ class GroundStationWindow(QMainWindow):
         全局事件过滤器
         拦截控制键的键盘按下/释放事件，确保即使焦点在子控件上也能响应键盘控制
         非控制键（如文本输入键）正常传递，不影响子控件功能
+        修饰键（Ctrl/Alt/Meta）按住时，忽略普通按键，防止组合键误触发控制
         
         参数：
             obj: 事件源对象
             event: 事件对象
         """
         if event.type() == event.Type.KeyPress and event.key() in self._CONTROL_KEYS:
+            if event.modifiers() & (Qt.KeyboardModifier.ControlModifier |
+                                    Qt.KeyboardModifier.AltModifier |
+                                    Qt.KeyboardModifier.MetaModifier):
+                return False
             self.keyPressEvent(event)
             return True
         elif event.type() == event.Type.KeyRelease and event.key() in self._CONTROL_KEYS:
@@ -964,18 +1110,23 @@ class GroundStationWindow(QMainWindow):
         """
         键盘按下事件处理（PyQt6窗口内）
         记录按下的键到集合中，同时处理单次触发的快捷键
+        修饰键（Ctrl/Alt/Meta/Win）按住时，忽略普通按键，防止组合键误触发控制
         
         快捷键映射：
         +/-: 加速/减速
         F: 双目左相机拍照
         G: 下视拍照
-        L: LiDAR快照
         T: 着陆
         V: VTOL切换
         Q: 退出
         1/2/3/4: 切换到第三人称/双目左/双目右/下视深度相机
         5/6/7/8/9: 追踪相机云台视角（前/后/左/右/俯视）
         """
+        if event.modifiers() & (Qt.KeyboardModifier.ControlModifier |
+                                Qt.KeyboardModifier.AltModifier |
+                                Qt.KeyboardModifier.MetaModifier):
+            super().keyPressEvent(event)
+            return
         self.keys_pressed.add(event.key())
         if event.key() in self._CONTROL_KEYS:
             self._handle_single_key_action(event.key())
@@ -1001,11 +1152,69 @@ class GroundStationWindow(QMainWindow):
             return
         if self.control_thread.control_mode != "键盘控制":
             return
+        if not self._is_target_window_active():
+            if self.keys_pressed:
+                self.keys_pressed.clear()
+                self._modifier_keys_pressed.clear()
+            return
         vx = (1 if Qt.Key.Key_W in self.keys_pressed else -1 if Qt.Key.Key_S in self.keys_pressed else 0)
         vy = (1 if Qt.Key.Key_D in self.keys_pressed else -1 if Qt.Key.Key_A in self.keys_pressed else 0)
         vz = (-1 if Qt.Key.Key_Up in self.keys_pressed else 1 if Qt.Key.Key_Down in self.keys_pressed else 0)
         yaw = (-1 if Qt.Key.Key_Left in self.keys_pressed else 1 if Qt.Key.Key_Right in self.keys_pressed else 0)
         self.control_thread.update_keyboard(vx, vy, vz, yaw)
+
+    def _pull_camera_frames(self):
+        """
+        相机帧拉取定时器回调（15fps）
+        从SensorManager的缓存中主动拉取最新帧，更新到VideoWidget
+
+        性能优化说明：
+        - 原方案：相机回调→frame_signal.emit()→UI主线程处理
+          每帧2.7MB图像跨线程传递，4相机×20fps=80次/秒
+        - 新方案：UI定时器主动拉取SensorManager缓存帧
+          零跨线程信号开销，刷新频率可控（15fps）
+        - 拉取模式还避免了帧积压问题：如果UI处理慢，
+          推送模式会积压大量未处理信号，拉取模式只取最新帧
+        """
+        if not self.control_thread or not self.control_thread.isRunning():
+            return
+        if not hasattr(self.control_thread, '_sensor_manager') or \
+                self.control_thread._sensor_manager is None:
+            return
+
+        sm = self.control_thread._sensor_manager
+
+        # 从各相机回调中拉取最新帧并更新到对应的VideoWidget
+        # 传感器名称映射到(VideoWidget, 显示标签)：
+        # - Chase: 追踪相机（CameraCallback）
+        # - DownCamera: 下视相机（CameraCallback）
+        # - StereoCamera: 双目相机组（StereoCameraCallback，含左右帧）
+        camera_widget_map = {
+            "Chase": (self.video_widget_chase, "chase"),
+            "DownCamera": (self.video_widget_down, "down"),
+        }
+
+        for sensor_name, (widget, camera_key) in camera_widget_map.items():
+            callback = sm.get_sensor(sensor_name)
+            if callback is not None and hasattr(callback, 'get_latest_frame'):
+                frame = callback.get_latest_frame()
+                if frame is not None:
+                    widget.update_frame(camera_key, frame)
+
+        # 双目相机组单独处理（StereoCameraCallback含左右帧）
+        stereo_callback = sm.get_sensor("StereoCamera")
+        if stereo_callback is not None and hasattr(stereo_callback, 'get_latest_left_frame'):
+            left_frame = stereo_callback.get_latest_left_frame()
+            if left_frame is not None:
+                self.video_widget_stereo_left.update_frame("stereo_left", left_frame)
+            right_frame = stereo_callback.get_latest_right_frame()
+            if right_frame is not None:
+                self.video_widget_stereo_right.update_frame("stereo_right", right_frame)
+
+        if hasattr(self, 'lidar_widget') and self.lidar_widget is not None:
+            lidar_data = self.control_thread.get_latest_lidar_data()
+            if lidar_data is not None:
+                self.lidar_widget.update_points(lidar_data)
 
     # ---- 信号处理 ----
 
@@ -1101,11 +1310,6 @@ class GroundStationWindow(QMainWindow):
         elif camera_name == "stereo_right":
             self.video_widget_stereo_right.update_frame(camera_name, frame)
 
-    @pyqtSlot(object)
-    def _on_lidar(self, lidar_data):
-        """LiDAR数据信号处理：更新3D点云可视化控件"""
-        self.lidar3d_widget.update_points(lidar_data)
-
     @pyqtSlot(str, object)
     def _on_sensor_data(self, sensor_name, data):
         """
@@ -1157,14 +1361,19 @@ class GroundStationWindow(QMainWindow):
         5. 清空控制线程引用
         """
         self.keyboard_timer.stop()
+        # 停止相机帧拉取定时器
+        self._frame_pull_timer.stop()
         self.keys_pressed.clear()
+        self._modifier_keys_pressed.clear()
 
-        # 清除所有视频和LiDAR显示
+        # 清除所有视频显示
         self.video_widget_stereo_left.clear_frame()
         self.video_widget_down.clear_frame()
         self.video_widget_chase.clear_frame()
         self.video_widget_stereo_right.clear_frame()
-        self.lidar3d_widget.clear_points()
+
+        if hasattr(self, 'lidar_widget') and self.lidar_widget is not None:
+            self.lidar_widget.clear_points()
 
         # 重置传感器数据面板
         self.sensor_panel.reset()
@@ -1173,7 +1382,6 @@ class GroundStationWindow(QMainWindow):
         self.btn_land.setEnabled(False)
         self.btn_exit.setEnabled(False)
         self.btn_photo.setEnabled(False)
-        self.btn_lidar3d_snap.setEnabled(False)
         self.btn_vtol_video.setEnabled(False)
         self.btn_vtol_video.setVisible(False)
 

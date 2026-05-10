@@ -55,18 +55,21 @@ class AltimeterCallback(SensorCallback):
         高度表数据回调
         当distance-sensor数据更新时由AirSim客户端自动调用
 
+        性能优化：先检查节流，避免不必要的数据解析
+
         参数：
             client: AirSim客户端对象
             distance_data: 距离传感器数据字典
         """
         try:
             if distance_data is not None:
-                with self._data_lock:
-                    self._latest_raw = distance_data
-                # 解析高度数据（先解析，再发送SensorData到UI）
+                # 先检查节流，避免不必要的数据解析
+                if not self._should_update_ui():
+                    return
+                # 解析高度数据
                 self._parse_altitude(distance_data)
-                # 发送到UI（节流控制，避免频繁刷新）
-                if self._altimeter_callback and self._latest_data and self._should_update_ui():
+                # 发送到UI
+                if self._altimeter_callback and self._latest_data:
                     self._altimeter_callback(self._latest_data)
         except Exception:
             pass

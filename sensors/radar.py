@@ -85,12 +85,17 @@ class RadarCallback(SensorCallback):
         """
         try:
             if radar_data is not None:
+                # 先检查节流，避免不必要的数据解析
+                if not self._should_update_ui():
+                    with self._data_lock:
+                        self._latest_detections = radar_data
+                    return
                 with self._data_lock:
                     self._latest_detections = radar_data
-                # 解析检测目标统计（先解析，再发送SensorData到UI）
+                # 解析检测目标统计
                 self._parse_detections(radar_data)
-                # 发送到UI（节流控制，避免频繁刷新）
-                if self._radar_callback and self._latest_data and self._should_update_ui():
+                # 发送到UI
+                if self._radar_callback and self._latest_data:
                     self._radar_callback(self._latest_data)
         except Exception:
             pass

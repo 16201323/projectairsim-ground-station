@@ -13,9 +13,15 @@ StereoCameraCallback：管理左右两个相机的数据同步和视差图计算
 - LeftCamera：左相机（偏左安装）
 - RightCamera：右相机（偏右安装）
 - 回调处理器分别接收左右相机数据，并可选计算视差图
+
+性能优化要点：
+- 左右相机帧仅缓存，不主动emit信号到UI
+- UI通过定时器主动拉取get_latest_left_frame()/get_latest_right_frame()
+- 录像写入降频到15fps，减少磁盘IO压力
 """
 
 import threading
+import time
 import numpy as np
 from projectairsim.utils import unpack_image
 
@@ -59,6 +65,10 @@ class StereoCameraCallback(SensorCallback):
         self._disparity_map: Optional[np.ndarray] = None
         self._left_lock = threading.Lock()
         self._right_lock = threading.Lock()
+        # 录像降频：15fps，减少磁盘IO压力
+        self._last_record_time_left: float = 0.0
+        self._last_record_time_right: float = 0.0
+        self._record_interval: float = 1.0 / 15.0
         # SGBM匹配器（延迟初始化，需要cv2）
         self._matcher = None
         if compute_disparity:
@@ -91,6 +101,10 @@ class StereoCameraCallback(SensorCallback):
         左相机数据回调
         当左相机传感器数据更新时调用
 
+        优化策略：
+        - 仅缓存帧，不主动emit信号到UI（UI通过定时器拉取）
+        - 录像写入降频到15fps
+
         参数：
             client: AirSim客户端对象
             image_msg: 左相机图像消息字典
@@ -99,18 +113,23 @@ class StereoCameraCallback(SensorCallback):
             if image_msg and "data" in image_msg and len(image_msg["data"]) > 0:
                 frame = unpack_image(image_msg)
                 if frame is not None:
+                    # 缓存最新帧（UI通过定时器主动拉取）
                     with self._left_lock:
                         self._left_frame = frame
-                    # 发送到UI
+
                     if self._frame_callback:
                         self._frame_callback("stereo_left", frame)
-                    # 写入录像
-                    if self._recorder:
+
+                    # 录像降频：15fps
+                    now = time.time()
+                    if self._recorder and (now - self._last_record_time_left >= self._record_interval):
+                        self._last_record_time_left = now
                         self._recorder.write_video_frame("stereo_left", frame)
                     # 更新基本传感器数据（基线距离等）
                     if self._latest_data is None:
                         self._update_data({"baseline": self._baseline})
-                        self._notify_sensor_data()
+                        if self._should_update_ui():
+                            self._notify_sensor_data()
                     # 尝试计算视差图
                     self._try_compute_disparity()
         except Exception:
@@ -121,6 +140,10 @@ class StereoCameraCallback(SensorCallback):
         右相机数据回调
         当右相机传感器数据更新时调用
 
+        优化策略：
+        - 仅缓存帧，不主动emit信号到UI（UI通过定时器拉取）
+        - 录像写入降频到15fps
+
         参数：
             client: AirSim客户端对象
             image_msg: 右相机图像消息字典
@@ -129,13 +152,17 @@ class StereoCameraCallback(SensorCallback):
             if image_msg and "data" in image_msg and len(image_msg["data"]) > 0:
                 frame = unpack_image(image_msg)
                 if frame is not None:
+                    # 缓存最新帧（UI通过定时器主动拉取）
                     with self._right_lock:
                         self._right_frame = frame
-                    # 发送到UI
+
                     if self._frame_callback:
                         self._frame_callback("stereo_right", frame)
-                    # 写入录像
-                    if self._recorder:
+
+                    # 录像降频：15fps
+                    now = time.time()
+                    if self._recorder and (now - self._last_record_time_right >= self._record_interval):
+                        self._last_record_time_right = now
                         self._recorder.write_video_frame("stereo_right", frame)
                     # 尝试计算视差图
                     self._try_compute_disparity()
@@ -212,6 +239,26 @@ class StereoCameraCallback(SensorCallback):
             视差图（浮点型，单位：像素），如果没有则返回None
         """
         return self._disparity_map
+
+    def get_latest_left_frame(self) -> Optional[np.ndarray]:
+        """
+        获取最新的左相机帧（拉取模式，线程安全）
+
+        返回：
+            最新的BGR图像帧，如果没有数据则返回None
+        """
+        with self._left_lock:
+            return self._left_frame
+
+    def get_latest_right_frame(self) -> Optional[np.ndarray]:
+        """
+        获取最新的右相机帧（拉取模式，线程安全）
+
+        返回：
+            最新的BGR图像帧，如果没有数据则返回None
+        """
+        with self._right_lock:
+            return self._right_frame
 
     def get_depth_map(self, focal_length: float) -> Optional[np.ndarray]:
         """

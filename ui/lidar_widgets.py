@@ -1,15 +1,24 @@
 """
-UI模块 - LiDAR点云3D可视化控件
+UI模块 - LiDAR点云3D可视化控件 (Open3D嵌入版)
 
-Lidar3DWidget：3D立体视图，使用matplotlib实现可旋转的3D点云显示
+Lidar3DWidget：使用Open3D渲染引擎嵌入PyQt6窗口
 
-NED坐标系说明：
-- X=北（前），Y=东（右），Z=下
-- 地面点Z > 0（在无人机下方），天空点Z < 0（在无人机上方）
-- 建筑底部Z大，建筑顶部Z小
+处理逻辑与test_lidar_ls120s3.py完全一致：
+1. 累积30帧原始点云（环形缓冲区）
+2. 合并后随机降采样至200k点（保留建筑整体形态）
+3. Z轴强度灰度着色（地面暗→高空亮）
+
+与test脚本的唯一差异：
+- test：LidarDisplay独立Open3D窗口
+- 本控件：Open3D Visualizer窗口嵌入Qt Widget
 """
 
+import ctypes
+from ctypes import wintypes
+
 import numpy as np
+import threading
+import time as _time
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from PyQt6.QtCore import Qt, QTimer
@@ -20,218 +29,212 @@ from core.constants import COLOR_NEON_YELLOW, COLOR_BORDER
 
 class Lidar3DWidget(QWidget):
     """
-    LiDAR点云3D可视化控件
+    LiDAR点云3D可视化控件（Open3D嵌入版）
 
-    核心特性：
-    1. 多帧累积：缓存最近N帧点云，构建稠密3D地图
-    2. 高度着色：基于NED坐标系Z轴，建筑按高度分层显色
-    3. 深度着色：远处点自动变暗，增强立体感
-    4. 降采样：超过阈值时随机降采样，保证渲染流畅
-    5. 增量渲染：仅数据变化时重绘，避免空转
+    配置与test_lidar_ls120s3.py完全一致：
+    - ACCUM_FRAMES = 30
+    - MAX_DISPLAY_POINTS = 200000
+    - 随机降采样
+    - Z轴灰度强度着色
     """
 
-    ACCUM_FRAMES = 4
-    MAX_DISPLAY_POINTS = 15000
-    MAX_RAW_POINTS = 8000
-    POINT_SIZE = 4
-    DPI = 80
-    REDRAW_INTERVAL_MS = 200
+    ACCUM_FRAMES = 30
+    MAX_DISPLAY_POINTS = 200000
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(200, 160)
 
         self._accum_buffer = []
-        self._all_pts = np.zeros((0, 3))
-        self._all_colors = np.zeros((0, 4))
+        self._lock = threading.Lock()
         self._need_redraw = False
-        self._is_drawing = False
+        self._hwnd = None
+        self._vis = None
+        self._view_control = None
+        self._has_gl = False
+        self._first_geom = True
 
         try:
-            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-            from matplotlib.figure import Figure
-            self._has_mpl = True
+            import open3d
+            self._has_gl = True
         except ImportError:
-            self._has_mpl = False
+            self._has_gl = False
 
-        if self._has_mpl:
-            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-            from matplotlib.figure import Figure
-            self.fig = Figure(facecolor='#0d1117', dpi=self.DPI)
-            self.canvas = FigureCanvas(self.fig)
-            self.ax = self.fig.add_subplot(111, projection='3d')
-            self._setup_axes()
-
-            layout = QVBoxLayout(self)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-            layout.addWidget(self.canvas)
-
+        if self._has_gl:
+            self._init_open3d()
             self._timer = QTimer()
             self._timer.timeout.connect(self._redraw)
-            self._timer.start(self.REDRAW_INTERVAL_MS)
-        else:
-            self.setStyleSheet(f"background-color: #0d1117; border: 1px solid {COLOR_BORDER}; border-radius: 4px;")
+            self._timer.start(200)
 
-    def _setup_axes(self):
-        self.ax.set_facecolor('#0d1117')
-        self.ax.set_axis_off()
-        self.ax.view_init(elev=30, azim=-45)
-        self.fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+            self._resize_timer = QTimer()
+            self._resize_timer.setSingleShot(True)
+            self._resize_timer.timeout.connect(self._sync_window_size)
+        else:
+            self.setStyleSheet(
+                f"background-color: #0d1117; border: 1px solid {COLOR_BORDER}; border-radius: 4px;"
+            )
+
+    def _init_open3d(self):
+        import open3d as o3d
+        self._o3d = o3d
+
+        self._vis = o3d.visualization.Visualizer()
+        self._vis.create_window(
+            window_name="_lidar_embedded_",
+            width=640,
+            height=360,
+            left=0,
+            top=0,
+            visible=False,
+        )
+
+        ctrl = self._vis.get_view_control()
+        self._view_control = ctrl
+        ctrl.set_zoom(0.15)
+        ctrl.set_up([0, 0, -1])
+
+        self._embed_into_qt()
+
+    def _embed_into_qt(self):
+        user32 = ctypes.windll.user32
+        u32 = user32
+        u32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+        u32.FindWindowW.restype = wintypes.HWND
+        u32.SetParent.argtypes = [wintypes.HWND, wintypes.HWND]
+        u32.SetParent.restype = wintypes.HWND
+        u32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+        u32.GetWindowLongW.restype = ctypes.c_long
+        u32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+        u32.SetWindowLongW.restype = ctypes.c_long
+
+        GWL_STYLE = -16
+        WS_POPUP = 0x80000000
+        WS_CHILD = 0x40000000
+        WS_CAPTION = 0x00C00000
+        WS_SYSMENU = 0x00080000
+        WS_THICKFRAME = 0x00040000
+
+        for _ in range(20):
+            hwnd = u32.FindWindowW(None, "_lidar_embedded_")
+            if not hwnd:
+                hwnd = u32.FindWindowW("GLFW30", None)
+            if hwnd:
+                self._hwnd = hwnd
+                qt_hwnd = int(self.winId())
+                u32.SetParent(hwnd, wintypes.HWND(qt_hwnd))
+                style = u32.GetWindowLongW(hwnd, GWL_STYLE)
+                style = (style & ~(WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME)) | WS_CHILD
+                u32.SetWindowLongW(hwnd, GWL_STYLE, style)
+                u32.ShowWindow(hwnd, 5)
+                return
+            _time.sleep(0.05)
+
+    def _sync_window_size(self):
+        if not self._hwnd:
+            return
+        try:
+            r = self.rect()
+            rw = max(r.width(), 1)
+            rh = max(r.height(), 1)
+            ctypes.windll.user32.MoveWindow(self._hwnd, 0, 0, rw, rh, True)
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_resize_timer'):
+            self._resize_timer.start(100)
 
     def update_points(self, lidar_data):
+        """
+        累积原始点云帧——与test_lidar_ls120s3.py的lidar_callback完全一致
+        """
         try:
             if lidar_data and "point_cloud" in lidar_data:
-                pts_raw = np.array(lidar_data["point_cloud"])
-                if len(pts_raw) == 0 or len(pts_raw) % 3 != 0:
+                pc = lidar_data["point_cloud"]
+                if not pc:
                     return
-                pts = pts_raw.reshape(-1, 3)
 
+                pts = np.array(pc, dtype=np.float32).reshape(-1, 3)
                 mask = ~np.all(pts == 0, axis=1)
                 pts = pts[mask]
                 if len(pts) == 0:
                     return
 
-                if len(pts) > self.MAX_RAW_POINTS:
-                    idx = np.random.choice(len(pts), self.MAX_RAW_POINTS, replace=False)
-                    pts = pts[idx]
+                with self._lock:
+                    self._accum_buffer.append(pts)
+                    while len(self._accum_buffer) > self.ACCUM_FRAMES:
+                        self._accum_buffer.pop(0)
 
-                colors = self._compute_colors(pts)
-
-                self._accum_buffer.append((pts, colors))
-                while len(self._accum_buffer) > self.ACCUM_FRAMES:
-                    self._accum_buffer.pop(0)
-
-                self._need_redraw = True
+                    self._need_redraw = True
         except Exception:
             pass
 
-    def _compute_colors(self, pts):
-        """
-        计算点云颜色：基于NED坐标系Z轴高度
-
-        NED坐标系：Z轴向下为正
-        - 地面/低处：Z值大（正）→ 蓝色/青色
-        - 中等高度：Z值中等 → 绿色
-        - 建筑顶部/高处：Z值小（负）→ 红色/橙色
-
-        这样建筑从底到顶形成 蓝→绿→红 的色带，轮廓清晰
-        """
-        n = len(pts)
-        colors = np.zeros((n, 4))
-
-        z_vals = pts[:, 2]
-
-        if n > 10:
-            z_low = np.percentile(z_vals, 5)
-            z_high = np.percentile(z_vals, 95)
-        else:
-            z_low = np.min(z_vals)
-            z_high = np.max(z_vals)
-
-        z_span = z_high - z_low
-        if z_span < 1.0:
-            z_span = 1.0
-
-        z_norm = np.clip((z_vals - z_low) / z_span, 0, 1)
-
-        dist_xy = np.sqrt(pts[:, 0]**2 + pts[:, 1]**2)
-        dist_max = np.percentile(dist_xy, 95) if n > 10 else 50.0
-        dist_max = max(dist_max, 10.0)
-        dist_norm = np.clip(dist_xy / dist_max, 0, 1)
-        brightness = np.clip(1.0 - 0.3 * dist_norm, 0.3, 1.0)
-
-        # z_norm=0(高处/建筑顶) → 红/橙, z_norm=0.5(中间) → 绿, z_norm=1(低处/地面) → 蓝/青
-        colors[:, 0] = np.clip((0.5 - z_norm) * 2, 0, 1) * brightness
-        colors[:, 1] = np.clip(1 - np.abs(z_norm - 0.5) * 2, 0, 1) * brightness
-        colors[:, 2] = np.clip((z_norm - 0.5) * 2, 0, 1) * brightness
-        colors[:, 3] = 0.85
-
-        return colors
-
     def clear_points(self):
-        self._accum_buffer.clear()
-        self._all_pts = np.zeros((0, 3))
-        self._all_colors = np.zeros((0, 4))
+        with self._lock:
+            self._accum_buffer.clear()
         self._need_redraw = False
-        if self._has_mpl:
-            self.ax.cla()
-            self._setup_axes()
-            self.canvas.draw_idle()
+        self._first_geom = True
+        if self._vis:
+            try:
+                self._vis.clear_geometries()
+                self._vis.poll_events()
+                self._vis.update_renderer()
+            except Exception:
+                pass
 
     def _redraw(self):
-        if not self._has_mpl or self._is_drawing:
+        """
+        合并渲染——与test_lidar_ls120s3.py的get_accumulated_cloud完全一致
+
+        1. 合并30帧
+        2. 随机降采样至200k
+        3. Z轴强度灰度
+        4. 推入Open3D渲染
+        """
+        if not self._vis:
             return
 
-        if not self._need_redraw:
-            return
+        with self._lock:
+            if not self._need_redraw:
+                return
+            if not self._accum_buffer:
+                return
+            all_pts = np.concatenate(self._accum_buffer, axis=0)
+            self._need_redraw = False
 
-        self._need_redraw = False
-        self._is_drawing = True
+        if len(all_pts) > self.MAX_DISPLAY_POINTS:
+            idx = np.random.choice(len(all_pts), self.MAX_DISPLAY_POINTS, replace=False)
+            all_pts = all_pts[idx]
+
+        z = all_pts[:, 2]
+        z_min, z_max = z.min(), z.max()
+        if z_max - z_min < 1e-6:
+            intensity = np.ones(len(all_pts))
+        else:
+            intensity = (z - z_min) / (z_max - z_min)
+
+        colors = np.stack([intensity, intensity, intensity], axis=1)
 
         try:
-            all_pts_list = []
-            all_colors_list = []
-            for idx, (pts, colors) in enumerate(self._accum_buffer):
-                age_ratio = (idx + 1) / max(len(self._accum_buffer), 1)
-                faded_colors = colors.copy()
-                faded_colors[:, 3] = colors[:, 3] * (0.3 + 0.7 * age_ratio)
-                all_pts_list.append(pts)
-                all_colors_list.append(faded_colors)
+            pcd = self._o3d.geometry.PointCloud()
+            pcd.points = self._o3d.utility.Vector3dVector(all_pts)
+            pcd.colors = self._o3d.utility.Vector3dVector(colors)
 
-            if all_pts_list:
-                self._all_pts = np.vstack(all_pts_list)
-                self._all_colors = np.vstack(all_colors_list)
-            else:
-                self._all_pts = np.zeros((0, 3))
-                self._all_colors = np.zeros((0, 4))
-
-            self.ax.cla()
-            self._setup_axes()
-
-            pts = self._all_pts
-            colors = self._all_colors
-            n = len(pts)
-
-            if n > 0:
-                if n > self.MAX_DISPLAY_POINTS:
-                    idx = np.random.choice(n, self.MAX_DISPLAY_POINTS, replace=False)
-                    pts = pts[idx]
-                    colors = colors[idx]
-                    n = len(pts)
-
-                self.ax.scatter(
-                    pts[:, 0], pts[:, 1], pts[:, 2],
-                    c=colors, s=self.POINT_SIZE,
-                    depthshade=True,
-                    edgecolors='none',
-                    alpha=0.85
-                )
-
-                max_range = max(
-                    np.abs(pts[:, 0]).max(),
-                    np.abs(pts[:, 1]).max(),
-                    np.abs(pts[:, 2]).max()
-                )
-                max_range = max(max_range * 1.2, 15.0)
-                max_range = min(max_range, 200.0)
-            else:
-                max_range = 30
-
-            self.ax.set_xlim(-max_range, max_range)
-            self.ax.set_ylim(-max_range, max_range)
-            self.ax.set_zlim(-max_range, max_range)
-
-            self.canvas.draw_idle()
-        finally:
-            self._is_drawing = False
+            self._vis.clear_geometries()
+            self._vis.add_geometry(pcd, reset_bounding_box=self._first_geom)
+            self._first_geom = False
+            self._vis.poll_events()
+            self._vis.update_renderer()
+        except Exception:
+            pass
 
     def paintEvent(self, event):
-        if not self._has_mpl:
+        if not self._has_gl:
             painter = QPainter(self)
             painter.fillRect(0, 0, self.width(), self.height(), QColor("#0d1117"))
             painter.setPen(QColor(COLOR_NEON_YELLOW))
             painter.setFont(QFont("Microsoft YaHei", 9))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                           "请安装matplotlib:\npip install matplotlib")
+                           "请安装Open3D:\npip install open3d")
             painter.end()

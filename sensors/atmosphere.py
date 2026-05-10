@@ -52,14 +52,13 @@ class AtmosphereCallback(SensorCallback):
         气压计数据回调
         当气压计传感器数据更新时调用
 
-        参数：
-            client: AirSim客户端对象
-            baro_data: 气压计数据字典
+        性能优化：先检查节流，避免不必要的数据解析
         """
         try:
             if baro_data is not None:
-                with self._data_lock:
-                    self._barometer_data = baro_data
+                # 先检查节流
+                if not self._should_update_ui():
+                    return
                 # 解析气压数据
                 self._parse_barometer(baro_data)
         except Exception:
@@ -70,14 +69,13 @@ class AtmosphereCallback(SensorCallback):
         空速传感器数据回调
         当空速传感器数据更新时调用
 
-        参数：
-            client: AirSim客户端对象
-            airspeed_data: 空速数据字典
+        性能优化：先检查节流，避免不必要的数据解析
         """
         try:
             if airspeed_data is not None:
-                with self._data_lock:
-                    self._airspeed_data = airspeed_data
+                # 先检查节流
+                if not self._should_update_ui():
+                    return
                 # 解析空速数据
                 self._parse_airspeed(airspeed_data)
         except Exception:
