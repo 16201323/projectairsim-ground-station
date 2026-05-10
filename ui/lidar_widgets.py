@@ -130,13 +130,14 @@ class Lidar3DWidget(QWidget):
             _time.sleep(0.05)
 
     def _sync_window_size(self):
-        if not self._hwnd:
+        if not self._hwnd or not self._vis:
             return
         try:
             r = self.rect()
             rw = max(r.width(), 1)
             rh = max(r.height(), 1)
-            ctypes.windll.user32.MoveWindow(self._hwnd, 0, 0, rw, rh, True)
+            if rw > 1 and rh > 1:
+                ctypes.windll.user32.MoveWindow(self._hwnd, 0, 0, rw, rh, True)
         except Exception:
             pass
 
@@ -192,7 +193,10 @@ class Lidar3DWidget(QWidget):
         3. Z轴强度灰度
         4. 推入Open3D渲染
         """
-        if not self._vis:
+        if not self._vis or not self._hwnd:
+            return
+
+        if not self.isVisible() or self.width() < 10 or self.height() < 10:
             return
 
         with self._lock:
@@ -228,6 +232,15 @@ class Lidar3DWidget(QWidget):
             self._vis.update_renderer()
         except Exception:
             pass
+
+    def closeEvent(self, event):
+        if self._vis:
+            try:
+                self._vis.destroy_window()
+            except Exception:
+                pass
+            self._vis = None
+            self._hwnd = None
 
     def paintEvent(self, event):
         if not self._has_gl:
