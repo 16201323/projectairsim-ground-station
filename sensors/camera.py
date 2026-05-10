@@ -151,14 +151,13 @@ class CameraCallback(SensorCallback):
     def get_display_fields(self) -> Dict[str, str]:
         """
         获取UI显示字段
-        显示相机的分辨率和帧数信息
+        显示相机的分辨率信息
         """
         if self._latest_data is None:
-            return {"分辨率": "N/A", "帧数": "0"}
+            return {"分辨率": "N/A"}
         p = self._latest_data.payload
         return {
             "分辨率": f"{p.get('width', 0)}x{p.get('height', 0)}",
-            "帧数": str(self._data_count),
         }
 
 

@@ -169,7 +169,7 @@ class AtmosphereCallback(SensorCallback):
         """获取UI显示字段：气压高度、指示空速、气压、QNH、差压"""
         if self._latest_data is None:
             return {
-                "气压高度": "N/A", "指示空速": "N/A",
+                "气高": "N/A", "空速": "N/A",
                 "气压": "N/A", "QNH": "N/A", "差压": "N/A",
             }
         p = self._latest_data.payload
@@ -178,8 +178,8 @@ class AtmosphereCallback(SensorCallback):
         qnh_pa = p.get('qnh', 101325.0)
         qnh_hpa = qnh_pa / 100.0
         return {
-            "气压高度": f"{p.get('baro_altitude', 0):.1f}m",
-            "指示空速": f"{p.get('airspeed', 0):.2f}m/s",
+            "气高": f"{p.get('baro_altitude', 0):.1f}m",
+            "空速": f"{p.get('airspeed', 0):.2f}m/s",
             "气压": f"{pressure_hpa:.2f}hPa",
             "QNH": f"{qnh_hpa:.2f}hPa",
             "差压": f"{p.get('diff_pressure', 0):.1f}Pa",

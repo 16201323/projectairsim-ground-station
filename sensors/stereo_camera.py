@@ -297,13 +297,11 @@ class StereoCameraCallback(SensorCallback):
         return False
 
     def get_display_fields(self) -> Dict[str, str]:
-        """获取UI显示字段：基线距离和视差范围"""
-        fields = {"基线距离": f"{self._baseline:.3f}m"}
+        """获取UI显示字段：基线距离和视差"""
+        fields = {"基线": f"{self._baseline:.3f}m"}
         if self._latest_data is not None:
             p = self._latest_data.payload
-            fields["视差范围"] = f"{p.get('disparity_min', 0):.1f}~{p.get('disparity_max', 0):.1f}px"
-            fields["平均视差"] = f"{p.get('disparity_mean', 0):.1f}px"
+            fields["视差"] = f"{p.get('disparity_min', 0):.1f}~{p.get('disparity_max', 0):.1f}px"
         else:
-            fields["视差范围"] = "N/A"
-            fields["平均视差"] = "N/A"
+            fields["视差"] = "N/A"
         return fields

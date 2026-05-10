@@ -1060,6 +1060,8 @@ class GroundStationWindow(QMainWindow):
             self._action("photo_down")
         elif qt_key == Qt.Key.Key_T:
             self._on_land()
+        elif qt_key == Qt.Key.Key_L:
+            self._on_land()
         elif qt_key == Qt.Key.Key_V:
             self._action("vtol")
         elif qt_key == Qt.Key.Key_Q:
@@ -1116,7 +1118,7 @@ class GroundStationWindow(QMainWindow):
         +/-: 加速/减速
         F: 双目左相机拍照
         G: 下视拍照
-        T: 着陆
+        T/L: 着陆
         V: VTOL切换
         Q: 退出
         1/2/3/4: 切换到第三人称/双目左/双目右/下视深度相机
@@ -1458,6 +1460,9 @@ def main():
     4. 创建主窗口并显示
     5. 进入Qt事件循环
     """
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
     app = QApplication([])
     app.setStyle("Fusion")
 
@@ -1475,7 +1480,11 @@ def main():
 
     window = GroundStationWindow()
     window.show()
-    app.exec()
+
+    try:
+        app.exec()
+    except KeyboardInterrupt:
+        window.close()
 
 
 if __name__ == "__main__":

@@ -181,11 +181,11 @@ class RadarCallback(SensorCallback):
     def get_display_fields(self) -> Dict[str, str]:
         """获取UI显示字段：目标数量和最近目标距离"""
         if self._latest_data is None:
-            return {"目标数": "0", "最近距离": "N/A"}
+            return {"目标": "0", "距离": "N/A"}
         p = self._latest_data.payload
         return {
-            "目标数": str(p.get("target_count", 0)),
-            "最近距离": f"{p.get('min_range', 0):.1f}m",
-            "方位角": f"{p.get('min_azimuth', 0):.1f}°",
+            "目标": str(p.get("target_count", 0)),
+            "距离": f"{p.get('min_range', 0):.1f}m",
+            "方位": f"{p.get('min_azimuth', 0):.1f}°",
             "仰角": f"{p.get('min_elevation', 0):.1f}°",
         }

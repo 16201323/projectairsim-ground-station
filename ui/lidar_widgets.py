@@ -108,11 +108,13 @@ class Lidar3DWidget(QWidget):
         u32.SetWindowLongW.restype = ctypes.c_long
 
         GWL_STYLE = -16
+        GWL_EXSTYLE = -20
         WS_POPUP = 0x80000000
         WS_CHILD = 0x40000000
         WS_CAPTION = 0x00C00000
         WS_SYSMENU = 0x00080000
         WS_THICKFRAME = 0x00040000
+        WS_EX_NOACTIVATE = 0x08000000
 
         for _ in range(20):
             hwnd = u32.FindWindowW(None, "_lidar_embedded_")
@@ -125,6 +127,8 @@ class Lidar3DWidget(QWidget):
                 style = u32.GetWindowLongW(hwnd, GWL_STYLE)
                 style = (style & ~(WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME)) | WS_CHILD
                 u32.SetWindowLongW(hwnd, GWL_STYLE, style)
+                ex_style = u32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                u32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOACTIVATE)
                 u32.ShowWindow(hwnd, 5)
                 return
             _time.sleep(0.05)

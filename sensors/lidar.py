@@ -136,8 +136,8 @@ class LidarCallback(SensorCallback):
 
     def get_display_fields(self) -> Dict[str, str]:
         if not self._config:
-            return {"线数": "N/A", "测距范围": "N/A", "点频": "N/A",
-                    "水平视场": "N/A", "垂直视场": "N/A", "旋转频率": "N/A"}
+            return {"线数": "N/A", "测距": "N/A", "点频": "N/A",
+                    "水平": "N/A", "垂直": "N/A", "频率": "N/A"}
         channels = self._config.get("number-of-channels", 0)
         range_m = self._config.get("range", 0)
         pps = self._config.get("points-per-second", 0)
@@ -154,9 +154,9 @@ class LidarCallback(SensorCallback):
             pps_str = f"{pps}/s"
         return {
             "线数": str(channels),
-            "测距范围": f"{range_m}m",
+            "测距": f"{range_m}m",
             "点频": pps_str,
-            "水平视场": f"{hfov_start}°~{hfov_end}°",
-            "垂直视场": f"{vfov_lower}°~{vfov_upper}°",
-            "旋转频率": f"{hz}Hz",
+            "水平": f"{hfov_start}°~{hfov_end}°",
+            "垂直": f"{vfov_lower}°~{vfov_upper}°",
+            "频率": f"{hz}Hz",
         }

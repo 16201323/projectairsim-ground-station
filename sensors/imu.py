@@ -137,18 +137,18 @@ class IMUCallback(SensorCallback):
         return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
 
     def get_display_fields(self) -> Dict[str, str]:
-        """获取UI显示字段：姿态角、加速度、角速度"""
+        """获取UI显示字段：姿态角、加速度"""
         if self._latest_data is None:
             return {
-                "滚转角": "N/A", "俯仰角": "N/A", "偏航角": "N/A",
-                "加速度X": "N/A", "加速度Y": "N/A", "加速度Z": "N/A",
+                "滚转": "N/A", "俯仰": "N/A", "偏航": "N/A",
+                "加速X": "N/A", "加速Y": "N/A", "加速Z": "N/A",
             }
         p = self._latest_data.payload
         return {
-            "滚转角": f"{p.get('roll', 0):.2f}°",
-            "俯仰角": f"{p.get('pitch', 0):.2f}°",
-            "偏航角": f"{p.get('yaw', 0):.2f}°",
-            "加速度X": f"{p.get('ax', 0):.2f}m/s²",
-            "加速度Y": f"{p.get('ay', 0):.2f}m/s²",
-            "加速度Z": f"{p.get('az', 0):.2f}m/s²",
+            "滚转": f"{p.get('roll', 0):.2f}°",
+            "俯仰": f"{p.get('pitch', 0):.2f}°",
+            "偏航": f"{p.get('yaw', 0):.2f}°",
+            "加速X": f"{p.get('ax', 0):.2f}",
+            "加速Y": f"{p.get('ay', 0):.2f}",
+            "加速Z": f"{p.get('az', 0):.2f}",
         }

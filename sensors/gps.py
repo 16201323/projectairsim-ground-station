@@ -131,10 +131,9 @@ class GPSCallback(SensorCallback):
         if self._latest_data is None:
             return {
                 "纬度": "N/A", "经度": "N/A", "海拔": "N/A",
-                "地速": "N/A", "定位类型": "N/A",
+                "地速": "N/A", "定位": "N/A",
             }
         p = self._latest_data.payload
-        # fix_type: 0=无定位, 2=2D定位, 3=3D定位
         fix_map = {0: "无定位", 2: "2D", 3: "3D"}
         fix_str = fix_map.get(p.get("fix_type", 0), "未知")
         return {
@@ -142,5 +141,5 @@ class GPSCallback(SensorCallback):
             "经度": f"{p.get('longitude', 0):.6f}°",
             "海拔": f"{p.get('altitude', 0):.1f}m",
             "地速": f"{p.get('speed', 0):.2f}m/s",
-            "定位类型": fix_str,
+            "定位": fix_str,
         }
