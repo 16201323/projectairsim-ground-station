@@ -37,7 +37,7 @@ from projectairsim.lidar_utils import LidarDisplay
 SCENE_CONFIG = "scene_lidar_ls120s3.jsonc"
 DRONE_NAME = "Drone1"
 
-ACCUM_FRAMES = 30
+ACCUM_FRAMES = 100
 _accumulated_points = []
 _accum_lock = threading.Lock()
 _frame_count = 0

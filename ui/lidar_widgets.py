@@ -100,12 +100,12 @@ class Lidar3DWidget(QWidget):
 
         self._gl_widget = gl.GLViewWidget()
         self._gl_widget.setBackgroundColor(0, 0, 0)
-        # Z-up坐标系下的透视视角：距离80m, 仰角30度
-        # 翻转Z轴后：elevation>0表示从上方看, azimuth控制水平旋转
+        # 透视视角：距离80m, 仰角30度, 方位135度（从东北方向看）
+        # OpenGL: X=右(NED东), Y=前(NED北), Z=上
         self._gl_widget.setCameraPosition(distance=80, elevation=30, azimuth=135)
-        # 旋转中心固定在点云底部（地面高度，前方20米）
-        # 前向LiDAR只扫描前方120°，旋转轴心放底部中间避免旋转时后方空白
-        self._gl_widget.opts['center'] = QVector3D(20, 0, 0)
+        # 旋转中心固定在OpenGL Y轴前方20米处（NED北=前）
+        # 前向LiDAR只扫描前方120°，旋转轴心放前方中间避免旋转时后方空白
+        self._gl_widget.opts['center'] = QVector3D(0, 20, 0)
         self._gl_widget.setMinimumSize(200, 160)
 
         self._axis_item = gl.GLAxisItem()
@@ -190,7 +190,10 @@ class Lidar3DWidget(QWidget):
         return toolbar
 
     def _switch_view(self, view_id):
-        """切换视角预设：透视(斜45度)/前视(正前方)/俯视(正上方)"""
+        """切换视角预设
+        OpenGL坐标系: X=右(NED东), Y=前(NED北), Z=上
+        pyqtgraph azimuth: 0=+X(东), 90=+Y(北=前), 180=-X, 270=-Y
+        """
         if not self._gl_widget:
             return
         self._current_view = view_id
@@ -199,24 +202,30 @@ class Lidar3DWidget(QWidget):
             btn.setChecked(vid == view_id)
 
         if view_id == LIDAR_VIEW_PERSPECTIVE:
-            # 透视视角：斜上方俯视，与LidarDisplay.VIEW_PERSPECTIVE一致
+            # 透视视角：斜上方俯视，从东北方向看
             self._gl_widget.setCameraPosition(distance=80, elevation=30, azimuth=135)
         elif view_id == LIDAR_VIEW_FORWARD:
-            # 前视视角：正前方平视（沿-Y方向看，NED中+X=北=前）
-            self._gl_widget.setCameraPosition(distance=80, elevation=5, azimuth=180)
+            # 前视视角：沿OpenGL +Y轴(NED北/前)平视
+            self._gl_widget.setCameraPosition(distance=80, elevation=5, azimuth=90)
         elif view_id == LIDAR_VIEW_TOPDOWN:
-            # 俯视视角：正上方俯视，与LidarDisplay.VIEW_TOPDOWN一致
+            # 俯视视角：正上方俯视
             self._gl_widget.setCameraPosition(distance=100, elevation=90, azimuth=0)
 
     def update_points(self, lidar_data):
         """
-        累积原始点云帧——与test_lidar_ls120s3.py的lidar_callback完全一致
+        累积原始点云帧
 
         处理流程：
         1. 从lidar_data提取point_cloud一维数组
         2. reshape为Nx3矩阵（每行一个xyz点）
         3. 过滤全零点（无效回波）
-        4. 追加到30帧环形缓冲区
+        4. 传感器帧→全局NED帧坐标转换（使用pose四元数旋转+位置平移）
+        5. 追加到30帧环形缓冲区
+
+        关键修复：
+        - point_cloud中的坐标是相对于LiDAR传感器自身的（传感器帧）
+        - 必须通过pose中的四元数旋转矩阵+位置偏移转换到全局NED帧
+        - 否则无人机移动/旋转后，所有帧的点云都堆积在原点，无法形成城市轮廓
         """
         try:
             if lidar_data and "point_cloud" in lidar_data:
@@ -229,6 +238,27 @@ class Lidar3DWidget(QWidget):
                 pts = pts[mask]
                 if len(pts) == 0:
                     return
+
+                # 传感器帧→全局NED帧坐标转换
+                # point_cloud坐标是相对于LiDAR传感器的，无人机移动时每帧从原点出发
+                # 必须用pose旋转矩阵+位移转换到全局帧，不同帧的点云才能正确拼接
+                pose = lidar_data.get("pose", {})
+                orientation = pose.get("orientation", {})
+                qw = orientation.get("w", 1.0)
+                qx = orientation.get("x", 0.0)
+                qy = orientation.get("y", 0.0)
+                qz = orientation.get("z", 0.0)
+                # 四元数→旋转矩阵（传感器帧→全局NED帧）
+                R = np.array([
+                    [1-2*(qy*qy+qz*qz), 2*(qx*qy-qz*qw), 2*(qx*qz+qy*qw)],
+                    [2*(qx*qy+qz*qw), 1-2*(qx*qx+qz*qz), 2*(qy*qz-qx*qw)],
+                    [2*(qx*qz-qy*qw), 2*(qy*qz+qx*qw), 1-2*(qx*qx+qy*qy)]
+                ], dtype=np.float32)
+                pts = (R @ pts.T).T                      # 旋转：传感器帧指向→全局帧指向
+                position = pose.get("position", {})
+                pts[:, 0] += position.get("x", 0.0)     # 平移：加上LiDAR全局NED位置
+                pts[:, 1] += position.get("y", 0.0)
+                pts[:, 2] += position.get("z", 0.0)
 
                 with self._lock:
                     self._accum_buffer.append(pts)
@@ -277,18 +307,22 @@ class Lidar3DWidget(QWidget):
 
     def _redraw(self):
         """
-        合并渲染——与test_lidar_ls120s3.py的get_accumulated_cloud一致
+        合并渲染——修复版：完整坐标系转换
 
-        1. 合并30帧点云
+        1. 合并30帧全局NED点云
         2. 随机降采样至200k点
-        3. NED→Z-up坐标转换（Z取反：NED中Z向下为正，OpenGL中Z向上为正）
+        3. 完整NED→OpenGL坐标转换（XY交换+Z取反）
         4. Z轴归一化为[0,1]强度 → plasma色图着色
         5. 推入pyqtgraph GLScatterPlotItem渲染
 
-        坐标系说明：
-        - ProjectAirSim输出NED坐标：X=北, Y=东, Z=下（Z=-20表示20米高空）
-        - pyqtgraph OpenGL使用Z-up：X=右, Y=前, Z=上（Z=20表示20米高空）
-        - 转换：将Z取反，使建筑出现在地面上方
+        坐标系转换说明：
+        ┌────────────┬───────────┬──────────┐
+        │   坐标系    │    X      │    Y    │    Z      │
+        ├────────────┼───────────┼─────────┼──────────┤
+        │ NED(全局)  │ 北(前)    │ 东(右)  │ 下        │
+        │ OpenGL     │ 右        │ 前      │ 上        │
+        │ 转换公式   │ NED_Y     │ NED_X   │ -NED_Z   │
+        └────────────┴───────────┴─────────┴──────────┘
         """
         if not self._scatter or not self._gl_widget:
             return
@@ -311,15 +345,23 @@ class Lidar3DWidget(QWidget):
             idx = np.random.choice(len(all_pts), self.MAX_DISPLAY_POINTS, replace=False)
             all_pts = all_pts[idx]
 
-        # NED→Z-up：Z取反，使建筑出现在地面上方而非地下
-        # NED中 Z=0(地面), Z=-30(30米高空) → Z-up中 Z=0(地面), Z=30(30米高空)
-        all_pts[:, 2] = -all_pts[:, 2]
+        # 完整NED→OpenGL坐标映射：XY交换 + Z取反
+        # NED: X=北(前), Y=东(右), Z=下
+        # OpenGL: X=右, Y=前, Z=上
+        # 转换：gl_x = ned_y, gl_y = ned_x, gl_z = -ned_z
+        ned_x = all_pts[:, 0]
+        ned_y = all_pts[:, 1]
+        ned_z = all_pts[:, 2]
+        gl_pts = np.empty_like(all_pts)
+        gl_pts[:, 0] = ned_y                     # NED东→OpenGL右
+        gl_pts[:, 1] = ned_x                     # NED北→OpenGL前
+        gl_pts[:, 2] = -ned_z                    # NED下→OpenGL上
 
-        # Z轴归一化为[0,1]强度（Z-up中：地面Z小→低处色，建筑Z大→高处色）
-        z = all_pts[:, 2]
+        # Z轴归一化为[0,1]强度（OpenGL中：地面Z≈0→低处色，建筑Z大→高处色）
+        z = gl_pts[:, 2]
         z_min, z_max = z.min(), z.max()
         if z_max - z_min < 1e-6:
-            intensity = np.ones(len(all_pts))
+            intensity = np.ones(len(gl_pts))
         else:
             intensity = (z - z_min) / (z_max - z_min)
 
@@ -327,14 +369,14 @@ class Lidar3DWidget(QWidget):
 
         try:
             self._scatter.setData(
-                pos=all_pts.astype(np.float32),
+                pos=gl_pts.astype(np.float32),
                 color=colors.astype(np.float32),
                 size=2,
                 pxMode=True,
             )
 
             if hasattr(self, '_point_count_label'):
-                self._point_count_label.setText(f"{len(all_pts):,} 点")
+                self._point_count_label.setText(f"{len(gl_pts):,} 点")
         except Exception:
             pass
 
