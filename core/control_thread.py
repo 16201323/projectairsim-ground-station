@@ -42,6 +42,9 @@ from .constants import (
     CAMERA_WIDTH, CAMERA_HEIGHT, VIDEO_FPS,
 )
 
+from .nav_udp_sender import NavUDPSender
+from .lidar_udp_sender import LidarUdpSender
+
 from sensors import SensorData, SensorManager
 
 
@@ -165,10 +168,32 @@ class DroneControlThread(QThread):
         self._smooth_ve = 0.0
         self._smooth_vd = 0.0
         self._smooth_yr = 0.0
+        self._nav_udp_sender = None
+        self._lidar_udp_sender = None
 
     def request_stop(self):
         """请求停止控制线程（安全退出）"""
         self._stop_requested = True
+
+    def start_nav_udp(self):
+        """启动导航UDP发送"""
+        if self._nav_udp_sender:
+            self._nav_udp_sender.start()
+
+    def stop_nav_udp(self):
+        """停止导航UDP发送"""
+        if self._nav_udp_sender:
+            self._nav_udp_sender.stop()
+
+    def start_lidar_udp(self):
+        """启动激光点云UDP发送"""
+        if self._lidar_udp_sender:
+            self._lidar_udp_sender.start()
+
+    def stop_lidar_udp(self):
+        """停止激光点云UDP发送"""
+        if self._lidar_udp_sender:
+            self._lidar_udp_sender.stop()
 
     def request_land(self):
         """请求着陆（触发着陆流程）"""
@@ -461,8 +486,8 @@ class DroneControlThread(QThread):
                         with self._frame_lock:
                             f = self._latest_stereo_left_frame
                         if f is not None:
-                            data_recorder.save_photo("stereo_left", f)
-                            self._log("双目左相机拍照已保存", "INFO")
+                            data_recorder.save_photo("front", f)
+                            self._log("前视拍照已保存", "INFO")
                     if self._photo_down:
                         self._photo_down = False
                         with self._frame_lock:
@@ -674,6 +699,16 @@ class DroneControlThread(QThread):
                     drone.disable_api_control()
                 except Exception:
                     pass
+
+            # 停止导航UDP发送器
+            if self._nav_udp_sender:
+                self._nav_udp_sender.stop()
+                self._log("导航UDP发送器已停止", "INFO")
+
+            # 停止激光点云UDP发送器
+            if self._lidar_udp_sender:
+                self._lidar_udp_sender.stop()
+                self._log("激光点云UDP发送器已停止", "INFO")
 
             # 停止UDP监听
             if udp_manager:
@@ -977,9 +1012,58 @@ class DroneControlThread(QThread):
         # 设置所有传感器订阅
         self._sensor_manager.setup_all_sensors()
 
+        # 创建导航UDP发送器（用于向外部系统发送IMU+GPS组合导航数据）
+        # 通过SensorManager获取IMU/GPS回调实例，NavUDPSender读取其_latest_data
+        imu_cb = self._sensor_manager.get_sensor("IMU1")
+        gps_cb = self._sensor_manager.get_sensor("GPS")
+        self._nav_udp_sender = NavUDPSender(imu_cb, gps_cb, self._log)
+
+        # 创建激光点云UDP发送器（用于向310P发送LiDAR点云数据）
+        # 通过SensorManager获取LidarCallback实例，LidarUdpSender读取其_latest_lidar_data
+        lidar_cb = self._sensor_manager.get_sensor("lidar1")
+        self._lidar_udp_sender = LidarUdpSender(lidar_cb, self._log) if lidar_cb else None
+
         if "lidar1" in drone.sensors:
             lidar_topic = drone.sensors["lidar1"]["lidar"]
             def on_lidar(_, data):
+                # 方案5：在回调线程预转换坐标，减轻UI线程CPU负担
+                # 回调线程做numpy解析+NED→OpenGL转换 → UI线程直接使用预转换结果
+                #
+                # 坐标系说明：
+                # ProjectAirSim的point_cloud已经是全局NED坐标（与官方LidarDisplay一致，
+                # LidarDisplay直接使用point_cloud不做pose变换即可正确显示）。
+                # pose中的position是无人机在全局NED帧中的位置，需要加到点云上做位置偏移。
+                # pose中的orientation是无人机朝向，不需要对点云做旋转（点云已在全局帧）。
+                #
+                # 注意：之前版本对point_cloud做了四元数旋转，导致在无人机非单位四元数朝向时
+                # （如城市预编译地图中yaw≠0），点云被错误旋转而翻转。树林小屋地图因无人机
+                # 初始朝向接近单位四元数所以未暴露此问题。
+                if data and "point_cloud" in data:
+                    pc = data["point_cloud"]
+                    if pc and len(pc) > 0 and len(pc) % 3 == 0:
+                        try:
+                            pts = np.array(pc, dtype=np.float32).reshape(-1, 3)
+                            mask = ~np.all(pts == 0, axis=1)
+                            pts = pts[mask]
+                            if len(pts) > 0:
+                                # 位置偏移：将点云从传感器原点平移到无人机全局位置
+                                pose = data.get("pose", {})
+                                position = pose.get("position", {})
+                                pts[:, 0] += position.get("x", 0.0)
+                                pts[:, 1] += position.get("y", 0.0)
+                                pts[:, 2] += position.get("z", 0.0)
+                                # NED→OpenGL坐标转换
+                                # NED: X=北(前), Y=东(右), Z=下
+                                # OpenGL: X=右, Y=前, Z=上
+                                gl_pts = np.empty_like(pts)
+                                gl_pts[:, 0] = pts[:, 1]
+                                gl_pts[:, 1] = pts[:, 0]
+                                gl_pts[:, 2] = -pts[:, 2]
+                                # 浅拷贝data避免修改原始对象，附加预转换的OpenGL坐标
+                                data = dict(data)
+                                data["gl_points"] = gl_pts
+                        except Exception:
+                            pass
                 with self._lidar_lock:
                     self._latest_lidar_data = data
             client.subscribe(lidar_topic, on_lidar)
