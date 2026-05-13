@@ -1,0 +1,8 @@
+LiDAR点云渲染性能优化：plasma色图LUT、坐标转换向量化、回调线程预转换
+
+- 方案3：plasma色图256级预计算LUT（替代每帧matplotlib调用，快10倍）
+- 方案4：NED→OpenGL坐标转换向量化赋值
+- 方案5：在回调线程预完成坐标转换，UI线程零CPU计算
+- 修复glViewport参数类型错误（float→int）
+- 修复相机图像翻转问题（V纹理坐标调整）
+- 无人机碰撞参数优化（restitution 0.1→0.3, friction 0.5→0.1）
