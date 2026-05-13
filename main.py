@@ -745,6 +745,18 @@ class GroundStationWindow(QMainWindow):
         self.sensor_panel = SensorPanel()
         layout.addWidget(self.sensor_panel, 1)
 
+        # 连接数据发送控件的信号
+        self.sensor_panel.nav_udp_start_requested.connect(
+            lambda: self._on_nav_udp_toggle(True))
+        self.sensor_panel.nav_udp_stop_requested.connect(
+            lambda: self._on_nav_udp_toggle(False))
+        self.sensor_panel.lidar_udp_start_requested.connect(
+            lambda: self._on_lidar_udp_toggle(True))
+        self.sensor_panel.lidar_udp_stop_requested.connect(
+            lambda: self._on_lidar_udp_toggle(False))
+        # 初始状态：发送控件禁用（仿真未启动）
+        self.sensor_panel.set_send_controls_enabled(False)
+
         panel.setFixedWidth(RIGHT_PANEL_WIDTH)
         return panel
 
@@ -836,6 +848,8 @@ class GroundStationWindow(QMainWindow):
         self.btn_land.setEnabled(True)
         self.btn_exit.setEnabled(True)
         self.btn_photo.setEnabled(True)
+        # 启用传感器面板的数据发送控件
+        self.sensor_panel.set_send_controls_enabled(True)
         if is_vtol:
             self.btn_vtol_video.setEnabled(True)
             self.btn_vtol_video.setVisible(True)
@@ -855,6 +869,38 @@ class GroundStationWindow(QMainWindow):
         """控制模式切换事件：UDP模式显示参数框，键盘模式隐藏"""
         if self.udp_grp:
             self.udp_grp.setVisible(self.radio_udp.isChecked())
+
+    def _on_nav_udp_toggle(self, start: bool):
+        """导航UDP发送切换事件：启动或停止发送组合导航数据"""
+        if not self.control_thread or not self.control_thread.isRunning():
+            return
+        sender = self.control_thread._nav_udp_sender
+        if sender is None:
+            self._append_log("当前无人机无IMU/GPS传感器，无法发送导航数据", "WARNING")
+            self.sensor_panel.radio_nav_stop.setChecked(True)
+            return
+        if start:
+            sender.start()
+            self._append_log(f"导航UDP发送已启动 → {sender.TARGET_IP}:{sender.TARGET_PORT}", "INFO")
+        else:
+            sender.stop()
+            self._append_log("导航UDP发送已停止", "INFO")
+
+    def _on_lidar_udp_toggle(self, start: bool):
+        """激光点云UDP发送切换事件：启动或停止发送"""
+        if not self.control_thread or not self.control_thread.isRunning():
+            return
+        sender = self.control_thread._lidar_udp_sender
+        if sender is None:
+            self._append_log("当前无人机无激光雷达传感器，无法发送点云", "WARNING")
+            self.sensor_panel.radio_lidar_stop.setChecked(True)
+            return
+        if start:
+            sender.start()
+            self._append_log(f"激光点云UDP发送已启动 → {sender.TARGET_IP}:{sender.TARGET_PORT}", "INFO")
+        else:
+            sender.stop()
+            self._append_log("激光点云UDP发送已停止", "INFO")
 
     def _on_land(self):
         """着陆按钮点击事件：向控制线程发送着陆请求"""
@@ -987,6 +1033,8 @@ class GroundStationWindow(QMainWindow):
         判断逻辑：
         1. 非手动模式（UDP模式）直接返回False，不响应pynput键盘
         2. 手动模式下，检查前台窗口标题是否包含本程序或UE相关关键字
+           - 新增"ue"关键词：匹配所有含UE字样的窗口标题
+           - UnrealEditor中各类工程窗口（如CitySample、Lyra等）标题通常含UE或Unreal字样
         3. Linux平台使用xdotool/subprocess获取窗口标题（带缓存，避免频繁调用）
         4. Windows平台使用ctypes.windll获取窗口标题
 
@@ -1025,7 +1073,7 @@ class GroundStationWindow(QMainWindow):
                 ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
                 title = buf.value.lower()
             target_keywords = ["地面站", "airsim", "dynamiccity", "eolicpark",
-                               "unreal", "ue4", "ue5", "projectairsim", "sim",
+                               "unreal", "ue4", "ue5", "ue", "projectairsim", "sim",
                                "ground station"]
             return any(kw in title for kw in target_keywords)
         except Exception:
@@ -1379,6 +1427,9 @@ class GroundStationWindow(QMainWindow):
 
         # 重置传感器数据面板
         self.sensor_panel.reset()
+        # 重置数据发送控件到停止状态并禁用
+        self.sensor_panel.reset_send_controls()
+        self.sensor_panel.set_send_controls_enabled(False)
 
         self.btn_start.setEnabled(True)
         self.btn_land.setEnabled(False)
