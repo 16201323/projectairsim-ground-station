@@ -24,10 +24,11 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QGridLayout,
-    QLabel, QScrollArea, QFrame, QSizePolicy
+    QLabel, QScrollArea, QFrame, QSizePolicy,
+    QRadioButton, QButtonGroup, QHBoxLayout
 )
 from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from sensors.base import SensorType, SensorData
 from typing import Dict, Optional
@@ -122,9 +123,20 @@ class SensorGroupBox(QGroupBox):
 
 class SensorPanel(QWidget):
     """
-    传感器数据面板（双列紧凑卡片）
+    传感器数据面板（双列紧凑卡片）+ 数据发送控制
     适用于右侧面板（240px宽×全高），每行两个参数
+
+    信号：
+        nav_udp_start_requested: 组合导航UDP发送启动请求
+        nav_udp_stop_requested: 组合导航UDP发送停止请求
+        lidar_udp_start_requested: 激光点云UDP发送启动请求
+        lidar_udp_stop_requested: 激光点云UDP发送停止请求
     """
+
+    nav_udp_start_requested = pyqtSignal()
+    nav_udp_stop_requested = pyqtSignal()
+    lidar_udp_start_requested = pyqtSignal()
+    lidar_udp_stop_requested = pyqtSignal()
 
     SENSOR_NAME_MAP = {
         "IMU1": "IMU",
@@ -207,6 +219,84 @@ class SensorPanel(QWidget):
             group.setVisible(False)
             scroll_layout.addWidget(group)
 
+        # 数据发送控制分组框（传感器列表下方）
+        send_grp = QGroupBox("◆ 数据发送")
+        send_grp.setStyleSheet(f"""
+            QGroupBox {{
+                background-color: {COLOR_BG_PANEL};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                margin-top: 5px;
+                padding: 2px;
+                padding-top: 12px;
+                font-size: 10px;
+                font-weight: bold;
+                color: {COLOR_NEON_CYAN};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 5px;
+                padding: 0 2px;
+                color: {COLOR_NEON_CYAN};
+            }}
+            QRadioButton {{
+                color: {COLOR_TEXT_MAIN};
+                font-size: 9px;
+                spacing: 3px;
+            }}
+            QRadioButton::indicator {{
+                width: 10px;
+                height: 10px;
+            }}
+        """)
+        send_layout = QVBoxLayout(send_grp)
+        send_layout.setSpacing(2)
+        send_layout.setContentsMargins(4, 12, 4, 4)
+
+        # 组合导航单选组
+        nav_label = QLabel("组合导航(IMU+GPS)")
+        nav_label.setFont(QFont("Microsoft YaHei", 8))
+        nav_label.setStyleSheet(f"color: {COLOR_TEXT_SECOND};")
+        send_layout.addWidget(nav_label)
+
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(8)
+        self._nav_btn_group = QButtonGroup()
+        self.radio_nav_send = QRadioButton("发送")
+        self.radio_nav_stop = QRadioButton("停止")
+        self.radio_nav_stop.setChecked(True)  # 默认停止
+        self._nav_btn_group.addButton(self.radio_nav_send, 1)
+        self._nav_btn_group.addButton(self.radio_nav_stop, 2)
+        nav_row.addWidget(self.radio_nav_send)
+        nav_row.addWidget(self.radio_nav_stop)
+        nav_row.addStretch()
+        send_layout.addLayout(nav_row)
+
+        # 激光雷达点云单选组
+        lidar_label = QLabel("激光雷达点云")
+        lidar_label.setFont(QFont("Microsoft YaHei", 8))
+        lidar_label.setStyleSheet(f"color: {COLOR_TEXT_SECOND};")
+        send_layout.addWidget(lidar_label)
+
+        lidar_row = QHBoxLayout()
+        lidar_row.setSpacing(8)
+        self._lidar_btn_group = QButtonGroup()
+        self.radio_lidar_send = QRadioButton("发送")
+        self.radio_lidar_stop = QRadioButton("停止")
+        self.radio_lidar_stop.setChecked(True)  # 默认停止
+        self._lidar_btn_group.addButton(self.radio_lidar_send, 1)
+        self._lidar_btn_group.addButton(self.radio_lidar_stop, 2)
+        lidar_row.addWidget(self.radio_lidar_send)
+        lidar_row.addWidget(self.radio_lidar_stop)
+        lidar_row.addStretch()
+        send_layout.addLayout(lidar_row)
+
+        # 连接单选框信号
+        self.radio_nav_send.toggled.connect(self._on_nav_send_toggled)
+        self.radio_lidar_send.toggled.connect(self._on_lidar_send_toggled)
+
+        scroll_layout.addWidget(send_grp)
+
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll, 1)
@@ -265,6 +355,32 @@ class SensorPanel(QWidget):
             sensor_type = type_map.get(sensor_name)
             if sensor_type is not None:
                 self.update_sensor_data(sensor_name, fields, sensor_type)
+
+    def _on_nav_send_toggled(self, checked):
+        """组合导航单选框切换事件：选中「发送」时发射启动信号，否则发射停止信号"""
+        if checked:
+            self.nav_udp_start_requested.emit()
+        else:
+            self.nav_udp_stop_requested.emit()
+
+    def _on_lidar_send_toggled(self, checked):
+        """激光点云单选框切换事件：选中「发送」时发射启动信号，否则发射停止信号"""
+        if checked:
+            self.lidar_udp_start_requested.emit()
+        else:
+            self.lidar_udp_stop_requested.emit()
+
+    def set_send_controls_enabled(self, enabled: bool):
+        """设置数据发送控件的启用/禁用状态（仿真未启动时禁用）"""
+        self.radio_nav_send.setEnabled(enabled)
+        self.radio_nav_stop.setEnabled(enabled)
+        self.radio_lidar_send.setEnabled(enabled)
+        self.radio_lidar_stop.setEnabled(enabled)
+
+    def reset_send_controls(self):
+        """重置数据发送控件到默认状态（停止）"""
+        self.radio_nav_stop.setChecked(True)
+        self.radio_lidar_stop.setChecked(True)
 
     def reset(self):
         for group in self._sensor_groups.values():
