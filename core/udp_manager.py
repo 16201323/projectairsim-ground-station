@@ -9,6 +9,7 @@ import socket
 import struct
 import sys
 import threading
+import time
 
 from .constants import (
     UDP_DEFAULT_IP, UDP_DEFAULT_PORT, UDP_MULTICAST_ADDR,
@@ -165,6 +166,38 @@ class UDPManager:
             return None
         except Exception:
             return None
+
+    def wait_for_first_packet(self, timeout=3.0):
+        """
+        预连接模式：等待飞控首包数据（阻塞调用，3秒超时）
+        用于UDP模式下在连接仿真器之前获取飞控经纬度，作为场景home_geo_point
+
+        参数：
+            timeout: 等待超时时间（秒），默认3秒
+
+        返回：
+            解析后的控制指令字典，或None（超时/未启动/解析失败）
+        """
+        if not self.running or self.socket is None:
+            return None
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                self.socket.settimeout(min(remaining, 0.5))
+                data, addr = self.socket.recvfrom(UDP_BUFFER_SIZE)
+                command = self._parse_struct(data)
+                if command is not None:
+                    with self.lock:
+                        self.latest_command = command
+                    return command
+            except socket.timeout:
+                continue
+            except Exception:
+                continue
+        return None
 
     def stop(self):
         """停止UDP监听，关闭套接字并释放资源"""
