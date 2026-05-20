@@ -41,14 +41,6 @@ class GPSCallback(SensorCallback):
         super().__init__(sensor_name, SensorType.GPS)
         self._gps_callback = gps_callback
         self._data_lock = threading.Lock()
-        # GPS坐标补偿偏移（UDP模式下飞控经纬度与场景原点的差值）
-        self._gps_lat_offset = 0.0
-        self._gps_lon_offset = 0.0
-
-    def set_geo_offset(self, lat_offset: float, lon_offset: float):
-        """设置GPS坐标补偿偏移（由control_thread在UDP首包后调用）"""
-        self._gps_lat_offset = lat_offset
-        self._gps_lon_offset = lon_offset
 
     def __call__(self, client, gps_data) -> None:
         """
@@ -92,8 +84,9 @@ class GPSCallback(SensorCallback):
         try:
             # 提取位置信息
             # ProjectAirSim GPS数据中经纬度是顶层字段，不在geo_point中
-            latitude = gps_data.get("latitude", 0.0) + self._gps_lat_offset
-            longitude = gps_data.get("longitude", 0.0) + self._gps_lon_offset
+            # 场景原点已设为飞控经纬度，GPS直接输出正确坐标，无需补偿
+            latitude = gps_data.get("latitude", 0.0)
+            longitude = gps_data.get("longitude", 0.0)
             altitude = gps_data.get("altitude", 0.0)
 
             # 提取速度信息
