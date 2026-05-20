@@ -38,7 +38,7 @@ from .udp_manager import UDPManager
 from .constants import (
     DRONE_MODELS, DEFAULT_SPEED, DEFAULT_YAW_SPEED,
     SPEED_STEP, MIN_SPEED, MAX_SPEED, CONTROL_DURATION,
-    UDP_DEFAULT_IP, UDP_DEFAULT_PORT, UDP_MULTICAST_ADDR, UDP_HOME_GEO_POINT,
+    UDP_DEFAULT_IP, UDP_DEFAULT_PORT, UDP_MULTICAST_ADDR,
     CAMERA_WIDTH, CAMERA_HEIGHT, VIDEO_FPS,
 )
 
@@ -159,9 +159,6 @@ class DroneControlThread(QThread):
         # UDP控制状态缓存
         self._udp_packet_count = 0
         self._home_geo_point = {}
-        self._scene_home_geo_point = {}  # 场景原始home_geo_point，用于GPS坐标补偿
-        self._gps_lat_offset = 0.0  # GPS纬度补偿：飞控纬度 - 场景纬度
-        self._gps_lon_offset = 0.0  # GPS经度补偿：飞控经度 - 场景经度
         self._udp_pos_calibrated = False
         self._udp_pos_offset_x = 0.0
         self._udp_pos_offset_y = 0.0
@@ -174,6 +171,9 @@ class DroneControlThread(QThread):
         self._prev_yaw_error = 0.0
         self._nav_udp_sender = None
         self._lidar_udp_sender = None
+        # 飞控断开检测：超过1秒无数据打印一次警告（仅打印一次）
+        self._last_udp_recv_time = 0.0
+        self._udp_disconnect_warned = False
 
     def request_stop(self):
         """请求停止控制线程（安全退出）"""
@@ -306,22 +306,50 @@ class DroneControlThread(QThread):
         # 步骤1：初始化配置管理器，根据无人机型号生成场景配置
         self._log("初始化配置管理器...", "INFO")
         config_mgr = ConfigManager(self.sim_config_path)
-        # UDP模式下，将home-geo-point设置为外部程序对应的地理位置
-        # 确保NED坐标转换结果在仿真世界范围内
+        # UDP模式下，先等待飞控首包获取经纬度，作为场景home_geo_point
+        # 这样传感器从创建时就以飞控经纬度为原点，GPS自然输出正确坐标，无需事后补偿
         custom_home_geo = None
+        udp_manager = None
+        first_packet = None
         if self.control_mode == "UDP自动控制":
-            custom_home_geo = UDP_HOME_GEO_POINT
+            # 创建UDP管理器并启动监听
+            udp_manager = UDPManager(self.udp_ip, self.udp_port, self.udp_multicast_addr)
+            udp_manager.start()
+            if self.udp_multicast_addr:
+                self._log(f"正在等待飞控数据({self.udp_multicast_addr}:{self.udp_port})...", "INFO")
+            else:
+                self._log(f"正在等待飞控数据({self.udp_ip}:{self.udp_port})...", "INFO")
+            # 预连接：等待飞控首包（3秒超时），在连接仿真器之前获取经纬度
+            loop = asyncio.get_event_loop()
+            first_packet = await loop.run_in_executor(None, udp_manager.wait_for_first_packet, 3.0)
+            if first_packet is None:
+                # 超时未收到飞控数据，提示用户并退出
+                self._log("未收到飞控数据（3秒超时），请检查飞控是否已启动并正在发送UDP数据", "ERROR")
+                udp_manager.stop()
+                self.status_signal.emit("connection", "disconnected")
+                return
+            # 检查首包经纬度有效性（lat/lon为0说明GPS未定位）
+            fc_lat = first_packet.get("lat", 0)
+            fc_lon = first_packet.get("lon", 0)
+            if fc_lat == 0 and fc_lon == 0:
+                self._log("飞控GPS未定位（经纬度为0），请等待飞控GPS定位后重试", "ERROR")
+                udp_manager.stop()
+                self.status_signal.emit("connection", "disconnected")
+                return
+            # 用飞控经纬度作为场景home_geo_point
+            custom_home_geo = {
+                "latitude": fc_lat,
+                "longitude": fc_lon,
+                "altitude": 30.0,
+            }
+            self._log(f"飞控经纬度: 纬度={fc_lat:.6f}° 经度={fc_lon:.6f}°", "INFO")
+            self._log(f"已设置场景原点为飞控经纬度，GPS传感器将直接输出正确坐标", "INFO")
         scene_config = config_mgr.generate_scene_config(self.robot_config, custom_home_geo)
         self._log(f"场景配置: {scene_config}", "INFO")
 
         # 初始化数据记录管理器，创建会话目录和日志文件
         data_recorder = DataRecorder()
         self._log(f"数据保存目录: {data_recorder.session_dir}", "INFO")
-
-        # 如果是UDP模式，创建UDP管理器（稍后启动）
-        udp_manager = None
-        if self.control_mode == "UDP自动控制":
-            udp_manager = UDPManager(self.udp_ip, self.udp_port, self.udp_multicast_addr)
 
         # 创建AirSim客户端，指定连接参数
         client = projectairsim.ProjectAirSimClient(
@@ -370,11 +398,8 @@ class DroneControlThread(QThread):
             self._log(f"无人机创建完成: {self.drone_model_name}", "INFO")
 
             # 保存home_geo_point用于UDP位置控制坐标转换
+            # UDP模式下home_geo_point已在场景配置中设为飞控经纬度，传感器原点正确
             self._home_geo_point = drone.home_geo_point
-            # 保存场景原始home_geo_point，用于GPS坐标补偿
-            # 仿真器GPS传感器基于场景原点报告经纬度，UDP首包后_home_geo_point会被更新为飞控经纬度
-            # 需要用场景原始值计算补偿偏移，使GPS输出与飞控坐标系一致
-            self._scene_home_geo_point = dict(drone.home_geo_point)
             self._world = world
 
             # 步骤5：设置传感器订阅（相机）
@@ -384,9 +409,8 @@ class DroneControlThread(QThread):
             # 录像功能暂时禁用（用户要求取消实时录像，后续可能恢复）
             # data_recorder.init_video_writers()
 
-            # 启动UDP监听（仅UDP模式）
+            # UDP监听已在预连接阶段启动（等待飞控首包时已start），此处仅打印日志
             if udp_manager:
-                udp_manager.start()
                 if self.udp_multicast_addr:
                     self._log(f"UDP组播监听已启动: {self.udp_multicast_addr}:{self.udp_port} (接口: {self.udp_ip})", "INFO")
                 else:
@@ -605,9 +629,9 @@ class DroneControlThread(QThread):
                                 try:
                                     loop = asyncio.get_event_loop()
                                     geo = await loop.run_in_executor(None, drone.get_ground_truth_geo_location)
-                                    # GPS坐标补偿：仿真器GPS基于场景原点，加上偏移转为飞控坐标系
-                                    self._cached_lat = geo.get("latitude", 0) + self._gps_lat_offset
-                                    self._cached_lon = geo.get("longitude", 0) + self._gps_lon_offset
+                                    # 场景原点已设为飞控经纬度，GPS直接输出正确坐标，无需补偿
+                                    self._cached_lat = geo.get("latitude", 0)
+                                    self._cached_lon = geo.get("longitude", 0)
                                     self._cached_alt = geo.get("altitude", 0)
                                 except Exception:
                                     pass
@@ -649,11 +673,21 @@ class DroneControlThread(QThread):
                             loop = asyncio.get_event_loop()
                             cmd = await loop.run_in_executor(None, udp_manager.receive_command)
                             if cmd is not None:
+                                # 收到飞控数据，更新接收时间并重置断开警告
+                                self._last_udp_recv_time = time.monotonic()
+                                self._udp_disconnect_warned = False
                                 self.udp_param_signal.emit(cmd)
                                 try:
                                     await self._process_udp(drone, cmd, data_recorder, pos)
                                 except Exception as e:
                                     self._log(f"执行UDP指令异常: {e}", "ERROR")
+                            else:
+                                # 未收到数据，检测飞控是否断开（超过1秒无数据打印一次警告）
+                                if (self._last_udp_recv_time > 0 and
+                                    not self._udp_disconnect_warned and
+                                    time.monotonic() - self._last_udp_recv_time > 1.0):
+                                    self._log("飞控数据中断超过1秒，请检查飞控连接", "WARNING")
+                                    self._udp_disconnect_warned = True
 
                 # ---- 着陆处理（着陆按钮触发后执行）----
                 if self._land_requested and is_flying and drone:
@@ -782,9 +816,9 @@ class DroneControlThread(QThread):
                 if self._pos_update_counter % 2 == 1:
                     try:
                         geo = await loop.run_in_executor(None, drone.get_ground_truth_geo_location)
-                        # GPS坐标补偿：仿真器GPS基于场景原点，加上偏移转为飞控坐标系
-                        self._cached_lat = geo.get("latitude", 0) + self._gps_lat_offset
-                        self._cached_lon = geo.get("longitude", 0) + self._gps_lon_offset
+                        # 场景原点已设为飞控经纬度，GPS直接输出正确坐标，无需补偿
+                        self._cached_lat = geo.get("latitude", 0)
+                        self._cached_lon = geo.get("longitude", 0)
                         self._cached_alt = geo.get("altitude", 0)
                     except Exception:
                         pass
@@ -849,7 +883,7 @@ class DroneControlThread(QThread):
             self._log(f"处理UDP指令失败: {e}\n{traceback.format_exc()}", "WARNING")
 
     async def _process_udp_first_packet(self, drone, cmd, data_recorder, pos, pkt):
-        """第一包有效数据：闪现到飞控经纬高+姿态，以飞控经纬度为出生点"""
+        """第一包有效数据：闪现到飞控高度+姿态（经纬度已在场景配置中设为原点）"""
         lon = cmd.get("lon", 0)
         lat = cmd.get("lat", 0)
         alt = cmd.get("alt", 0)
@@ -857,26 +891,12 @@ class DroneControlThread(QThread):
         theta = cmd.get("theta", 0)
         psi = cmd.get("psi", 0)
 
-        # 用飞控经纬度更新home_geo_point，使_geo_to_ned()以飞控坐标为原点
-        # 保留仿真器原始altitude（地面海拔），位置校准偏移自动补偿垂直差值
-        self._home_geo_point["latitude"] = lat
-        self._home_geo_point["longitude"] = lon
+        # 场景原点已设为飞控经纬度，home_geo_point已正确，无需再更新
+        # 闪现到飞控指定的高度和姿态
+        self._log(f"UDP首包闪现: lat={lat:.6f}, lon={lon:.6f}, alt={alt:.1f}m, "
+                  f"phi={phi:.1f}°, theta={theta:.1f}°, psi={psi:.1f}°", "INFO")
 
-        # 计算GPS坐标补偿偏移
-        # 仿真器GPS传感器基于场景原始home_geo_point报告经纬度
-        # 更新_home_geo_point后，需要补偿GPS输出使其与飞控坐标系一致
-        # 补偿公式：显示经纬度 = GPS原始经纬度 + (飞控经纬度 - 场景原始经纬度)
-        scene_lat = self._scene_home_geo_point.get("latitude", 0)
-        scene_lon = self._scene_home_geo_point.get("longitude", 0)
-        self._gps_lat_offset = lat - scene_lat
-        self._gps_lon_offset = lon - scene_lon
-        # 同步补偿偏移到GPS回调，使GPS传感器输出和NavUDPSender发送的经纬度与飞控一致
-        if hasattr(self, '_gps_callback') and self._gps_callback:
-            self._gps_callback.set_geo_offset(self._gps_lat_offset, self._gps_lon_offset)
-        self._log(f"UDP首包已设置出生点: lat={lat:.6f}, lon={lon:.6f}, "
-                  f"GPS补偿: dlat={self._gps_lat_offset:.6f}, dlon={self._gps_lon_offset:.6f}", "INFO")
-
-        # 经纬高转NED坐标（以飞控经纬度为原点，飞控位置→NED≈0）
+        # 经纬高转NED坐标（场景原点=飞控经纬度，飞控位置→NED≈0）
         home_geo = self._home_geo_point
         home_altitude = home_geo.get("altitude", 0)
         abs_alt = alt + home_altitude
@@ -920,9 +940,9 @@ class DroneControlThread(QThread):
             cosy_cosp = 1 - 2 * (qy2 * qy2 + qz2 * qz2)
             self._cached_yaw_rad = math.atan2(siny_cosp, cosy_cosp)
             geo = await loop.run_in_executor(None, drone.get_ground_truth_geo_location)
-            # GPS坐标补偿：仿真器GPS基于场景原点，加上偏移转为飞控坐标系
-            self._cached_lat = geo.get("latitude", 0) + self._gps_lat_offset
-            self._cached_lon = geo.get("longitude", 0) + self._gps_lon_offset
+            # 场景原点已设为飞控经纬度，GPS直接输出正确坐标，无需补偿
+            self._cached_lat = geo.get("latitude", 0)
+            self._cached_lon = geo.get("longitude", 0)
             self._cached_alt = geo.get("altitude", 0)
         except Exception:
             pass
@@ -1092,7 +1112,6 @@ class DroneControlThread(QThread):
         # 通过SensorManager获取IMU/GPS回调实例，NavUDPSender读取其_latest_data
         imu_cb = self._sensor_manager.get_sensor("IMU1")
         gps_cb = self._sensor_manager.get_sensor("GPS")
-        self._gps_callback = gps_cb  # 保存引用，UDP首包后设置坐标补偿
         self._nav_udp_sender = NavUDPSender(imu_cb, gps_cb, self._log)
 
         # 创建激光点云UDP发送器（用于向310P发送LiDAR点云数据）
