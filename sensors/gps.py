@@ -41,13 +41,21 @@ class GPSCallback(SensorCallback):
         super().__init__(sensor_name, SensorType.GPS)
         self._gps_callback = gps_callback
         self._data_lock = threading.Lock()
+        # GPS坐标补偿偏移（UDP模式下飞控经纬度与场景原点的差值）
+        self._gps_lat_offset = 0.0
+        self._gps_lon_offset = 0.0
+
+    def set_geo_offset(self, lat_offset: float, lon_offset: float):
+        """设置GPS坐标补偿偏移（由control_thread在UDP首包后调用）"""
+        self._gps_lat_offset = lat_offset
+        self._gps_lon_offset = lon_offset
 
     def __call__(self, client, gps_data) -> None:
         """
         GPS数据回调
         当GPS传感器数据更新时由AirSim客户端自动调用
 
-        性能优化：先检查节流，避免不必要的数据解析
+        性能优化：始终解析数据更新_latest_data，仅UI回调做节流
 
         参数：
             client: AirSim客户端对象
@@ -55,14 +63,13 @@ class GPSCallback(SensorCallback):
         """
         try:
             if gps_data is not None:
-                # 先检查节流，避免不必要的数据解析
-                if not self._should_update_ui():
-                    return
-                # 解析GPS数据
+                # 始终解析数据，确保_latest_data为最新值
+                # 外部模块（如NavUDPSender）以100Hz读取_latest_data，必须始终最新
                 self._parse_gps_data(gps_data)
-                # 发送到UI
-                if self._gps_callback and self._latest_data:
-                    self._gps_callback(self._latest_data)
+                # 仅UI回调做节流，避免5Hz以上的信号emit拖慢UI线程
+                if self._should_update_ui():
+                    if self._gps_callback and self._latest_data:
+                        self._gps_callback(self._latest_data)
         except Exception:
             pass
 
@@ -85,8 +92,8 @@ class GPSCallback(SensorCallback):
         try:
             # 提取位置信息
             # ProjectAirSim GPS数据中经纬度是顶层字段，不在geo_point中
-            latitude = gps_data.get("latitude", 0.0)
-            longitude = gps_data.get("longitude", 0.0)
+            latitude = gps_data.get("latitude", 0.0) + self._gps_lat_offset
+            longitude = gps_data.get("longitude", 0.0) + self._gps_lon_offset
             altitude = gps_data.get("altitude", 0.0)
 
             # 提取速度信息
